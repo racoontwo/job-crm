@@ -1,0 +1,1 @@
+ALTER TABLE `applications` ADD `role_description` text;

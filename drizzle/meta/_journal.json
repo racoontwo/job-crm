@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1789991096093,
+      "tag": "0000_far_maggott",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1790045020542,
+      "tag": "0001_old_leper_queen",
+      "breakpoints": true
+    }
+  ]
+}
