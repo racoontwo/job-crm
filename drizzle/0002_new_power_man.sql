@@ -1,0 +1,1 @@
+ALTER TABLE `applications` ADD `cover_letter` text;

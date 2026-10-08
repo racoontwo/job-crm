@@ -3,7 +3,7 @@
 import { useTransition } from "react";
 import { deleteApplication } from "@/lib/actions/actions";
 
-export default function DeleteApplicationButton({ applicationId }: { applicationId: number }) {
+export default function DeleteApplicationButton({ applicationId }: { applicationId: string }) {
   const [isPending, startTransition] = useTransition();
 
   function handleClick() {

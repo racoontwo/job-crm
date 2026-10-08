@@ -32,6 +32,14 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# Atlas onboarding drops credentials here with a name that doesn't match
+# .env* — ignore explicitly so it can never be committed by accident.
+atlas-credentials.env
+
+# Personal background used for cover-letter generation. Local-only: repo is public.
+/profile
 
 # vercel
 .vercel

@@ -15,6 +15,13 @@
       "when": 1790045020542,
       "tag": "0001_old_leper_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790393852840,
+      "tag": "0002_new_power_man",
+      "breakpoints": true
     }
   ]
 }

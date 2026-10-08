@@ -1,21 +1,50 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { createCompanyAndApplication, extractJobPosting } from "@/lib/actions/actions";
 import type { ExtractedJobPosting } from "@/lib/jobPosting";
+import { findJobSource, inferSourceLabel } from "@/lib/jobSources";
 
 const inputClass =
   "w-full rounded-md border border-neutral-300 px-3 py-2 text-sm";
 
+const DETECTED_BADGE_COLORS: Record<string, string> = {
+  working: "bg-green-100 text-green-800",
+  blocked: "bg-red-100 text-red-800",
+  unverified: "bg-neutral-200 text-neutral-600",
+  unknown: "bg-neutral-100 text-neutral-500",
+};
+
+function useDetectedSource(url: string) {
+  return useMemo(() => {
+    if (!url.trim()) return null;
+    let hostname: string;
+    try {
+      hostname = new URL(url).hostname;
+    } catch {
+      return null;
+    }
+    const known = findJobSource(hostname);
+    return {
+      label: inferSourceLabel(hostname),
+      status: known?.status ?? "unknown",
+      note: known?.note,
+    };
+  }, [url]);
+}
+
 export default function NewApplicationFlow({
   existingCompanies,
+  initialExtracted = null,
 }: {
-  existingCompanies: { id: number; name: string }[];
+  existingCompanies: { id: string; name: string }[];
+  initialExtracted?: ExtractedJobPosting | null;
 }) {
-  const [url, setUrl] = useState("");
-  const [extracted, setExtracted] = useState<ExtractedJobPosting | null>(null);
+  const [url, setUrl] = useState(initialExtracted?.jobUrl ?? "");
+  const [extracted, setExtracted] = useState<ExtractedJobPosting | null>(initialExtracted);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const detectedSource = useDetectedSource(url);
 
   function handleExtract() {
     setFetchError(null);
@@ -43,6 +72,25 @@ export default function NewApplicationFlow({
           className={inputClass}
           placeholder="https://..."
         />
+        {detectedSource && (
+          <div className="mt-2 flex items-center gap-2">
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                DETECTED_BADGE_COLORS[detectedSource.status]
+              }`}
+            >
+              Detected: {detectedSource.label}
+            </span>
+            {detectedSource.status === "blocked" && (
+              <span className="text-xs text-red-600">{detectedSource.note}</span>
+            )}
+            {detectedSource.status === "unknown" && (
+              <span className="text-xs text-neutral-400">
+                Not a known job board — will try generic parsing.
+              </span>
+            )}
+          </div>
+        )}
         {fetchError && <p className="mt-2 text-sm text-red-600">{fetchError}</p>}
         <button
           type="button"
@@ -56,10 +104,31 @@ export default function NewApplicationFlow({
     );
   }
 
+  const missingFields = [
+    !extracted.companyName.trim() && "company name",
+    !extracted.roleTitle.trim() && "role title",
+    !extracted.roleDescription.trim() && "role details",
+  ].filter((f): f is string => Boolean(f));
+  const extractionSucceeded = missingFields.length === 0;
+
   return (
     <div className="mx-auto max-w-lg">
       <h1 className="mb-2 text-xl font-semibold">Review & confirm</h1>
       <p className="mb-4 truncate text-xs text-neutral-400">{extracted.jobUrl}</p>
+      <div
+        className={`mb-4 flex items-center gap-2 rounded-md px-3 py-2 text-xs ${
+          extractionSucceeded ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
+        }`}
+      >
+        <span
+          className={`h-2 w-2 shrink-0 rounded-full ${
+            extractionSucceeded ? "bg-green-500" : "bg-red-500"
+          }`}
+        />
+        {extractionSucceeded
+          ? "Extraction successful — company, role, and description were all found."
+          : `Extraction incomplete — couldn't find: ${missingFields.join(", ")}.`}
+      </div>
       {extracted.warning && (
         <p className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
           {extracted.warning}
@@ -87,6 +156,31 @@ export default function NewApplicationFlow({
             Type an existing name to reuse that company, or a new one to create it.
           </p>
         </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium">Company website</label>
+            <input
+              name="website"
+              type="url"
+              defaultValue={extracted.companyWebsite}
+              className={inputClass}
+              placeholder="https://..."
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium">Industry</label>
+            <input
+              name="industry"
+              defaultValue={extracted.industry}
+              className={inputClass}
+              placeholder="e.g. Software"
+            />
+          </div>
+        </div>
+        <p className="-mt-2 text-xs text-neutral-400">
+          Only used the first time you add this company.
+        </p>
 
         <div>
           <label className="mb-1 block text-sm font-medium">Role title</label>

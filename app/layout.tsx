@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import "./globals.css";
 import ApplicationListPanel from "@/components/ApplicationListPanel";
+import DatabaseStatusToast from "@/components/DatabaseStatusToast";
 
 export const metadata: Metadata = {
   title: "Job CRM",
@@ -19,12 +20,26 @@ export default function RootLayout({
             <Link href="/" className="text-lg font-semibold tracking-tight">
               Job CRM
             </Link>
-            <Link
-              href="/applications/new"
-              className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700"
-            >
-              + New application
-            </Link>
+            <div className="flex items-center gap-4">
+              <Link
+                href="/sources"
+                className="text-sm font-medium text-neutral-600 hover:text-neutral-900"
+              >
+                Sources
+              </Link>
+              <Link
+                href="/settings"
+                className="text-sm font-medium text-neutral-600 hover:text-neutral-900"
+              >
+                Settings
+              </Link>
+              <Link
+                href="/applications/new"
+                className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700"
+              >
+                + New application
+              </Link>
+            </div>
           </div>
         </header>
         <div className="flex min-h-0 flex-1 flex-col md:flex-row">
@@ -35,6 +50,7 @@ export default function RootLayout({
             <div className="mx-auto max-w-4xl">{children}</div>
           </main>
         </div>
+        <DatabaseStatusToast />
       </body>
     </html>
   );
