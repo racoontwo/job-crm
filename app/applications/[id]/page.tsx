@@ -7,6 +7,8 @@ import {
 import { STATUS_STAGES } from "@/lib/db/schema";
 import { toggleFollowUpDone } from "@/lib/actions/actions";
 import DeleteApplicationButton from "@/components/DeleteApplicationButton";
+import GenerateCoverLetterButton from "@/components/GenerateCoverLetterButton";
+import { saveCoverLetter } from "@/lib/actions/actions";
 
 export default async function ApplicationDetailPage({
   params,
@@ -14,7 +16,7 @@ export default async function ApplicationDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const app = await getApplication(Number(id));
+  const app = await getApplication(id);
   if (!app) notFound();
 
   const today = new Date().toISOString().slice(0, 10);
@@ -25,9 +27,19 @@ export default async function ApplicationDetailPage({
         <div>
           <h1 className="text-2xl font-semibold">{app.company.name}</h1>
           <p className="text-neutral-600">{app.roleTitle}</p>
-          <div className="mt-2 flex items-center gap-3 text-sm text-neutral-500">
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-neutral-500">
             <span>{"★".repeat(app.company.interestLevel)}{"☆".repeat(5 - app.company.interestLevel)}</span>
+            {app.company.industry && <span>{app.company.industry}</span>}
             {app.source && <span>via {app.source}</span>}
+            {app.company.website && (
+              <a
+                href={app.company.website}
+                target="_blank"
+                className="text-blue-600 hover:underline"
+              >
+                company site ↗
+              </a>
+            )}
             {app.jobUrl && (
               <a
                 href={app.jobUrl}
@@ -50,6 +62,46 @@ export default async function ApplicationDetailPage({
           <p className="whitespace-pre-wrap text-sm text-neutral-700">{app.roleDescription}</p>
         </section>
       )}
+
+      <section className="rounded-lg border border-neutral-200 bg-white p-5">
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
+            Cover letter
+          </h2>
+          <GenerateCoverLetterButton
+            applicationId={app.id}
+            hasExisting={Boolean(app.coverLetter)}
+          />
+        </div>
+
+        {!app.coverLetter && (
+          <p className="mb-4 text-sm text-neutral-400">
+            No cover letter yet — generate a draft, then edit it below before saving.
+          </p>
+        )}
+
+        <form action={saveCoverLetter} className="space-y-2">
+          <input type="hidden" name="applicationId" value={app.id} />
+          <textarea
+            name="coverLetter"
+            rows={14}
+            defaultValue={app.coverLetter ?? ""}
+            placeholder="Your cover letter — generated drafts land here and can be edited before saving."
+            className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+          />
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-xs text-neutral-400">
+              Edits you save here also shape future drafts.
+            </p>
+            <button
+              type="submit"
+              className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700"
+            >
+              Save cover letter
+            </button>
+          </div>
+        </form>
+      </section>
 
       <section className="rounded-lg border border-neutral-200 bg-white p-5">
         <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-neutral-500">

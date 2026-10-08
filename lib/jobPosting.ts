@@ -5,6 +5,7 @@
 
 import http from "node:http";
 import https from "node:https";
+import { findJobSource, inferSourceLabel } from "./jobSources";
 
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36";
@@ -15,7 +16,7 @@ const USER_AGENT =
 function httpsGetFollowingRedirects(
   targetUrl: string,
   maxRedirects = 5
-): Promise<{ status: number; body: string }> {
+): Promise<{ status: number; body: string; finalUrl: string }> {
   return new Promise((resolve, reject) => {
     const u = new URL(targetUrl);
     const client = u.protocol === "http:" ? http : https;
@@ -44,7 +45,7 @@ function httpsGetFollowingRedirects(
         let data = "";
         res.setEncoding("utf8");
         res.on("data", (chunk) => (data += chunk));
-        res.on("end", () => resolve({ status: statusCode, body: data }));
+        res.on("end", () => resolve({ status: statusCode, body: data, finalUrl: targetUrl }));
       }
     );
     req.on("timeout", () => {
@@ -56,23 +57,85 @@ function httpsGetFollowingRedirects(
   });
 }
 
-const SOURCE_MAP: Record<string, string> = {
-  "linkedin.com": "LinkedIn",
-  "indeed.com": "Indeed",
-  "glassdoor.com": "Glassdoor",
-  "greenhouse.io": "Greenhouse",
-  "lever.co": "Lever",
-  "ashbyhq.com": "Ashby",
-  "workday.com": "Workday",
-  "myworkdayjobs.com": "Workday",
-  "smartrecruiters.com": "SmartRecruiters",
-  "breezy.hr": "Breezy",
-  "wellfound.com": "Wellfound",
-  "teamtailor.com": "Teamtailor",
-};
+// LinkedIn's "copy link" from a job search results page produces a
+// /jobs/search-results/?currentJobId=... URL, which requires a logged-in
+// session and redirects to a sign-in wall. The canonical /jobs/view/<id>
+// URL for the same posting is public — rewrite to that before fetching.
+function normalizeJobUrl(url: URL): URL {
+  const host = url.hostname.replace(/^www\./, "");
+  if (host === "linkedin.com" && url.pathname.startsWith("/jobs/search-results")) {
+    const jobId = url.searchParams.get("currentJobId");
+    if (jobId) return new URL(`https://www.linkedin.com/jobs/view/${jobId}`);
+  }
+  return url;
+}
+
+// When a LinkedIn listing has no JobPosting JSON-LD (common — seems to
+// depend on the listing, not something we control), fall back to its
+// og:title/og:description. Both follow a couple of fixed templates and
+// always carry a site-name suffix, so it's worth cleaning up rather than
+// showing the raw social-preview text.
+function parseLinkedInTitle(ogTitle: string): { roleTitle: string; companyName: string } {
+  const title = ogTitle.replace(/\s*\|\s*LinkedIn(?:\s*Jobs)?\s*$/i, "").trim();
+
+  let match = title.match(/^(.+?) hiring (.+?) in .+$/i);
+  if (match) return { companyName: match[1].trim(), roleTitle: match[2].trim() };
+
+  match = title.match(/^(.+?) at (.+)$/i);
+  if (match) {
+    const company = match[2].split(/\s*[—–]\s*/)[0].trim();
+    return { companyName: company, roleTitle: match[1].trim() };
+  }
+
+  return { companyName: "", roleTitle: title };
+}
+
+function cleanLinkedInDescription(ogDescription: string): string {
+  // Some listings' og:description is entirely boilerplate ("Apply for <role>
+  // at <company> in <location>. <type>. <level> role. See responsibilities,
+  // qualifications, and similar jobs on LinkedIn.") with no real description
+  // content — just restating fields we already have. Drop it rather than
+  // show a sentence that adds nothing.
+  if (/^Apply for .+\.\s*See responsibilities, qualifications, and similar jobs on LinkedIn\.?\s*$/i.test(ogDescription)) {
+    return "";
+  }
+  const stripped = ogDescription
+    .replace(/^Posted [^.]*\.\s*/i, "")
+    .replace(/\s*See (?:this|these) and similar jobs on LinkedIn\.?\s*$/i, "")
+    .trim();
+
+  // The "Easy Apply" CTA template ("Please fill out the required fields
+  // below...") carries no real job content either — LinkedIn seems to serve
+  // this or the "Apply for ..." template above interchangeably for the same
+  // listing across requests.
+  if (/please fill out the required fields below and click on the submit button to apply for the role/i.test(stripped)) {
+    return "";
+  }
+  return stripped;
+}
+
+// LinkedIn's guest (logged-out) job page — the one this app actually
+// fetches — server-renders the full description as plain HTML in this
+// container, independent of whether JobPosting JSON-LD or a real
+// og:description happen to be present. This is the richest source
+// available and should be tried before falling back to og:description's
+// truncated/boilerplate text.
+function extractLinkedInDescriptionHtml(html: string): string | undefined {
+  const match = html.match(
+    /<div class="show-more-less-html__markup[^"]*"[^>]*>([\s\S]*?)<\/section>/i
+  );
+  return match ? match[1] : undefined;
+}
+
+function isLoginWall(finalUrl: string): boolean {
+  const path = new URL(finalUrl).pathname;
+  return path.startsWith("/uas/login") || path.startsWith("/authwall") || path.startsWith("/login");
+}
 
 export type ExtractedJobPosting = {
   companyName: string;
+  companyWebsite: string;
+  industry: string;
   roleTitle: string;
   roleDescription: string;
   source: string;
@@ -81,14 +144,6 @@ export type ExtractedJobPosting = {
   warning?: string;
   error?: string;
 };
-
-function inferSource(hostname: string): string {
-  const host = hostname.replace(/^www\./, "");
-  for (const [domain, label] of Object.entries(SOURCE_MAP)) {
-    if (host === domain || host.endsWith(`.${domain}`)) return label;
-  }
-  return host;
-}
 
 function extractJsonLdObjects(html: string): Record<string, unknown>[] {
   const scripts = html.matchAll(
@@ -138,6 +193,20 @@ function metaContent(html: string, property: string): string | undefined {
   return undefined;
 }
 
+function extractIndustry(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => (typeof v === "string" ? v : (v as { name?: string })?.name))
+      .filter((v): v is string => typeof v === "string" && v.length > 0)
+      .join(", ");
+  }
+  if (value && typeof value === "object" && typeof (value as { name?: string }).name === "string") {
+    return (value as { name: string }).name;
+  }
+  return "";
+}
+
 function decodeHtmlEntities(text: string): string {
   return text
     .replace(/&amp;/g, "&")
@@ -148,11 +217,13 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&nbsp;/g, " ");
 }
 
-// JSON-LD JobPosting descriptions are typically HTML. Convert block-level
-// tags to line breaks before stripping, so the plain text stays readable.
+// JSON-LD JobPosting descriptions are typically HTML. Some sources (e.g.
+// LinkedIn) double-encode it, so the tags themselves show up as literal
+// "&lt;br&gt;" text — decode entities before stripping tags, not just after,
+// or the tag regexes below never match and raw markup leaks into the text.
 function htmlToText(html: string): string {
   return decodeHtmlEntities(
-    html
+    decodeHtmlEntities(html)
       .replace(/<li[^>]*>/gi, "• ")
       .replace(/<\/(p|div|li|h[1-6])>|<br\s*\/?>/gi, "\n")
       .replace(/<[^>]+>/g, "")
@@ -165,6 +236,8 @@ function htmlToText(html: string): string {
 export async function extractJobPostingFromUrl(rawUrl: string): Promise<ExtractedJobPosting> {
   const empty = {
     companyName: "",
+    companyWebsite: "",
+    industry: "",
     roleTitle: "",
     roleDescription: "",
     source: "",
@@ -182,10 +255,27 @@ export async function extractJobPostingFromUrl(rawUrl: string): Promise<Extracte
     return { ...empty, error: "Only http(s) URLs are supported." };
   }
 
-  const source = inferSource(parsed.hostname);
+  parsed = normalizeJobUrl(parsed);
+  const source = inferSourceLabel(parsed.hostname);
+  const knownSource = findJobSource(parsed.hostname);
+  if (knownSource?.status === "blocked") {
+    return {
+      ...empty,
+      source,
+      error: knownSource.note ?? `${source} blocks automated requests. You can still fill this in by hand.`,
+    };
+  }
+
   let html: string;
   try {
     const res = await httpsGetFollowingRedirects(parsed.toString());
+    if (isLoginWall(res.finalUrl)) {
+      return {
+        ...empty,
+        source,
+        error: "That link requires signing in to view. Try copying the link from the job's own page instead of a search-results page, or fill this in by hand.",
+      };
+    }
     if (res.status < 200 || res.status >= 300) {
       return {
         ...empty,
@@ -202,23 +292,60 @@ export async function extractJobPostingFromUrl(rawUrl: string): Promise<Extracte
   const jobPosting = findJobPosting(jsonLdObjects);
 
   let companyName = "";
+  let companyWebsite = "";
+  let industry = "";
   let roleTitle = "";
   let roleDescription = "";
 
   if (jobPosting) {
     if (typeof jobPosting.title === "string") roleTitle = jobPosting.title;
-    const org = jobPosting.hiringOrganization as { name?: string } | string | undefined;
-    if (typeof org === "string") companyName = org;
-    else if (org && typeof org.name === "string") companyName = org.name;
+    const org = jobPosting.hiringOrganization as
+      | { name?: string; url?: string; sameAs?: string }
+      | string
+      | undefined;
+    if (typeof org === "string") {
+      companyName = org;
+    } else if (org) {
+      if (typeof org.name === "string") companyName = org.name;
+      if (typeof org.url === "string") companyWebsite = org.url;
+      else if (typeof org.sameAs === "string") companyWebsite = org.sameAs;
+    }
     if (typeof jobPosting.description === "string") {
       roleDescription = htmlToText(jobPosting.description);
+    }
+    industry = extractIndustry(jobPosting.industry);
+  }
+
+  const isLinkedIn = parsed.hostname.replace(/^www\./, "").endsWith("linkedin.com");
+  let descriptionHandled = false;
+  if (!jobPosting && isLinkedIn) {
+    const ogTitle = metaContent(html, "og:title");
+    if (ogTitle) {
+      const parsedTitle = parseLinkedInTitle(ogTitle);
+      if (!roleTitle) roleTitle = parsedTitle.roleTitle;
+      if (!companyName) companyName = parsedTitle.companyName;
+    }
+
+    const richDescriptionHtml = extractLinkedInDescriptionHtml(html);
+    if (richDescriptionHtml) {
+      roleDescription = htmlToText(richDescriptionHtml);
+      descriptionHandled = true;
+    } else {
+      const ogDescription = metaContent(html, "og:description");
+      if (ogDescription) {
+        // cleanLinkedInDescription can legitimately reduce pure boilerplate
+        // to "" — that's a handled result, not "nothing found yet", so it
+        // must not fall through to the raw og:description fallback below.
+        roleDescription = cleanLinkedInDescription(ogDescription);
+        descriptionHandled = true;
+      }
     }
   }
 
   if (!roleTitle) {
     roleTitle = metaContent(html, "og:title") ?? "";
   }
-  if (!roleDescription) {
+  if (!roleDescription && !descriptionHandled) {
     roleDescription = metaContent(html, "og:description") ?? "";
   }
 
@@ -228,6 +355,8 @@ export async function extractJobPostingFromUrl(rawUrl: string): Promise<Extracte
 
   return {
     companyName: decodeHtmlEntities(companyName).trim(),
+    companyWebsite: companyWebsite.trim(),
+    industry: decodeHtmlEntities(industry).trim(),
     roleTitle: decodeHtmlEntities(roleTitle).trim(),
     roleDescription: decodeHtmlEntities(roleDescription).trim(),
     source,

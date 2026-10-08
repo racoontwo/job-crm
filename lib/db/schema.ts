@@ -20,6 +20,7 @@ export const applications = sqliteTable("applications", {
     .references(() => companies.id, { onDelete: "cascade" }),
   roleTitle: text("role_title").notNull(),
   roleDescription: text("role_description"),
+  coverLetter: text("cover_letter"),
   source: text("source"), // e.g. LinkedIn, referral, direct, job board
   appliedDate: text("applied_date").notNull(),
   currentStatus: text("current_status").notNull().default("Applied"),
