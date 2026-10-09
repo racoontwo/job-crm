@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { createCompanyAndApplication, extractJobPosting } from "@/lib/actions/actions";
 import type { ExtractedJobPosting } from "@/lib/jobPosting";
 import { findJobSource, inferSourceLabel } from "@/lib/jobSources";
+import type { SavedLinkSummary } from "@/lib/db/types";
+import FlowSteps from "@/components/FlowSteps";
 
 const inputClass =
   "w-full rounded-md border border-neutral-300 px-3 py-2 text-sm";
@@ -36,11 +38,13 @@ function useDetectedSource(url: string) {
 export default function NewApplicationFlow({
   existingCompanies,
   initialExtracted = null,
+  savedLink = null,
 }: {
   existingCompanies: { id: string; name: string }[];
   initialExtracted?: ExtractedJobPosting | null;
+  savedLink?: SavedLinkSummary | null;
 }) {
-  const [url, setUrl] = useState(initialExtracted?.jobUrl ?? "");
+  const [url, setUrl] = useState(initialExtracted?.jobUrl ?? savedLink?.url ?? "");
   const [extracted, setExtracted] = useState<ExtractedJobPosting | null>(initialExtracted);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -58,9 +62,21 @@ export default function NewApplicationFlow({
     });
   }
 
+  // Coming from the inbox, the link is already saved (step 1) — go straight
+  // to fetching it. The ref keeps dev-mode's double effect run from fetching twice.
+  const autoFetched = useRef(false);
+  useEffect(() => {
+    if (savedLink && !initialExtracted && !autoFetched.current) {
+      autoFetched.current = true;
+      handleExtract();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   if (!extracted) {
     return (
       <div className="mx-auto max-w-lg">
+        <FlowSteps current={2} />
         <h1 className="mb-6 text-xl font-semibold">New application</h1>
         <label className="mb-1 block text-sm font-medium">Job posting URL</label>
         <input
@@ -113,6 +129,7 @@ export default function NewApplicationFlow({
 
   return (
     <div className="mx-auto max-w-lg">
+      <FlowSteps current={2} />
       <h1 className="mb-2 text-xl font-semibold">Review & confirm</h1>
       <p className="mb-4 truncate text-xs text-neutral-400">{extracted.jobUrl}</p>
       <div
@@ -136,6 +153,7 @@ export default function NewApplicationFlow({
       )}
       <form action={createCompanyAndApplication} className="space-y-4">
         <input type="hidden" name="jobUrl" value={extracted.jobUrl} />
+        {savedLink && <input type="hidden" name="savedLinkId" value={savedLink.id} />}
 
         <div>
           <label className="mb-1 block text-sm font-medium">Company name</label>

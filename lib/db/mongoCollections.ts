@@ -47,6 +47,17 @@ export type ApplicationDoc = {
   followUps: FollowUpDoc[];
 };
 
+// Written by the hosted capture endpoint (capture/api/save.js) as well as
+// this app — keep the two in sync if this shape changes.
+export type SavedLinkDoc = {
+  _id?: ObjectId;
+  url: string;
+  sharedText: string | null;
+  status: "new" | "done" | "dismissed";
+  applicationId: ObjectId | null;
+  receivedAt: string;
+};
+
 async function requireDb() {
   const db = await getMongoDb();
   if (!db) throw new Error("MongoDB is not configured.");
@@ -61,4 +72,9 @@ export async function companiesCollection() {
 export async function applicationsCollection() {
   const db = await requireDb();
   return db.collection<ApplicationDoc>("applications");
+}
+
+export async function savedLinksCollection() {
+  const db = await requireDb();
+  return db.collection<SavedLinkDoc>("savedLinks");
 }

@@ -56,6 +56,22 @@ export const followUps = sqliteTable("follow_ups", {
     .default(sql`(current_timestamp)`),
 });
 
+// Step 1 of the new-application flow: a link shared from the phone (or
+// pasted here) waiting to be fetched. Becomes "done" once an application is
+// saved from it, or "dismissed" if it's not worth applying to.
+export const savedLinks = sqliteTable("saved_links", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  url: text("url").notNull(),
+  sharedText: text("shared_text"), // whatever the share menu sent alongside the URL
+  status: text("status").notNull().default("new"), // new | done | dismissed
+  applicationId: integer("application_id").references(() => applications.id, {
+    onDelete: "set null",
+  }),
+  receivedAt: text("received_at")
+    .notNull()
+    .default(sql`(current_timestamp)`),
+});
+
 // Relations
 export const companiesRelations = relations(companies, ({ many }) => ({
   applications: many(applications),

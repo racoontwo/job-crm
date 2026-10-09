@@ -46,3 +46,10 @@ export type DashboardApplication = ApplicationSummary & {
   daysSinceUpdate: number | null;
   openFollowUps: FollowUpSummary[];
 };
+
+export type SavedLinkSummary = {
+  id: string;
+  url: string;
+  sharedText: string | null;
+  receivedAt: string;
+};

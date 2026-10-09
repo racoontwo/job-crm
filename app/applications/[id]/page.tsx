@@ -9,13 +9,18 @@ import { toggleFollowUpDone } from "@/lib/actions/actions";
 import DeleteApplicationButton from "@/components/DeleteApplicationButton";
 import GenerateCoverLetterButton from "@/components/GenerateCoverLetterButton";
 import { saveCoverLetter } from "@/lib/actions/actions";
+import FlowSteps from "@/components/FlowSteps";
 
 export default async function ApplicationDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ step?: string }>;
 }) {
   const { id } = await params;
+  const { step } = await searchParams;
+  const isCoverLetterStep = step === "cover-letter";
   const app = await getApplication(id);
   if (!app) notFound();
 
@@ -23,6 +28,11 @@ export default async function ApplicationDetailPage({
 
   return (
     <div className="space-y-8">
+      {isCoverLetterStep && (
+        <div className="-mb-4">
+          <FlowSteps current={3} />
+        </div>
+      )}
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">{app.company.name}</h1>
@@ -63,7 +73,12 @@ export default async function ApplicationDetailPage({
         </section>
       )}
 
-      <section className="rounded-lg border border-neutral-200 bg-white p-5">
+      <section
+        id="cover-letter"
+        className={`scroll-mt-4 rounded-lg border bg-white p-5 ${
+          isCoverLetterStep ? "border-neutral-900" : "border-neutral-200"
+        }`}
+      >
         <div className="mb-4 flex items-center justify-between gap-4">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
             Cover letter

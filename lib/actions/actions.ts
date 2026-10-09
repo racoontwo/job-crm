@@ -45,6 +45,7 @@ import type {
   StatusEventSummary,
   FollowUpSummary,
 } from "@/lib/db/types";
+import { markSavedLinkDone } from "@/lib/actions/savedLinks";
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -353,6 +354,7 @@ export async function createCompanyAndApplication(formData: FormData) {
   const source = (formData.get("source") as string)?.trim() || null;
   const jobUrl = (formData.get("jobUrl") as string)?.trim() || null;
   const appliedDate = (formData.get("appliedDate") as string) || today();
+  const savedLinkId = (formData.get("savedLinkId") as string)?.trim() || null;
 
   if (!companyName || !roleTitle) {
     throw new Error("Company name and role title are required.");
@@ -375,8 +377,10 @@ export async function createCompanyAndApplication(formData: FormData) {
     ? await createCompanyAndApplicationInMongo(input)
     : await createCompanyAndApplicationInSqlite(input);
 
+  await markSavedLinkDone(appId, { savedLinkId, jobUrl });
+
   revalidatePath("/");
-  redirect(`/applications/${appId}`);
+  redirect(`/applications/${appId}?step=cover-letter#cover-letter`);
 }
 
 export async function addStatusEvent(formData: FormData) {

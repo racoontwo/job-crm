@@ -45,6 +45,31 @@ status events and follow-ups are embedded arrays on the application document
 rather than separate collections, since they're always read/written together
 with their parent application.
 
+## Adding a job in three steps
+
+1. **Save the link.** Share a job posting from your phone ("Save to Job CRM" in the share menu), or paste it into **Inbox**. Nothing is fetched yet.
+2. **Fetch details.** In **Inbox**, hit *Fetch details →* on a link. The posting is scraped and you review company, role and description before saving. For sites that block the server (Glassdoor), open the link on the laptop and use the userscript instead; the inbox entry is cleared once an application with that URL is saved.
+3. **Cover letter.** Saving lands you on the application's cover-letter section to generate a draft.
+
+### Sharing from your Android phone
+
+Phone shares go to a tiny hosted endpoint (`capture/`) that only stores the link in your Atlas database, so it works while the laptop is off. The app itself stays private on `127.0.0.1`. Phone links show up in the inbox only when the app is running in Mongo mode.
+
+**One-time setup**
+
+1. **Atlas user for the endpoint.** In Atlas → Database Access, add a user just for this, with a custom role allowing only `insert` on `job-crm.savedLinks`. Under Network Access, Vercel needs `0.0.0.0/0` (its IPs aren't fixed), so this low-privilege user is what keeps your other data safe.
+2. **Generate a token:** `openssl rand -hex 32`
+3. **Deploy `capture/` to Vercel** (Root Directory: `capture`) with env vars `CAPTURE_TOKEN` (the token), `MONGODB_URI` (connection string for the user from step 1) and optionally `MONGODB_DB`. The endpoint is `https://<project>.vercel.app/api/save`.
+4. **On the phone,** install [HTTP Shortcuts](https://http-shortcuts.rmy.ch/):
+   - Get this command onto the phone (e.g. as a QR code: `npx qrcode "<command>"`), then **+ → Regular HTTP Shortcut → Import from cURL command**:
+     `curl -X POST 'https://<project>.vercel.app/api/save' -H 'Authorization: Bearer <token>' -H 'Content-Type: text/plain' --data 'REPLACE_ME'`
+   - Main screen **⋮ → Variables → +**: a constant/static-type **global** variable `sharedText`, empty, with *Allow Receiving Value from Share Dialog* on. (Variables created from inside the shortcut editor are local and can't receive shares.)
+   - In the shortcut's **Request Body**, replace `REPLACE_ME` with `{sharedText}` via the **{ }** button; set **Response Handling** to a toast.
+
+Now share from Chrome, LinkedIn, Indeed, etc. and pick HTTP Shortcuts. Running the shortcut directly (not via Share) sends an empty body and returns 400 — that's expected. Anything without a link is rejected; a LinkedIn-style "Check out this job at Acme: https://…" is fine.
+
+Keep the token secret. Anyone with it can add links to your inbox (nothing more). To rotate it, change `CAPTURE_TOKEN` in Vercel and in the shortcut.
+
 ## Cover letters
 
 Each application has a "Cover letter" section with a **Generate** button that
