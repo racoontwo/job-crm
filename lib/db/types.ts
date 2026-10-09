@@ -33,7 +33,7 @@ export type ApplicationSummary = {
   roleDescription: string | null;
   coverLetter: string | null;
   source: string | null;
-  appliedDate: string;
+  appliedDate: string | null;
   currentStatus: string;
   jobUrl: string | null;
   createdAt: string;

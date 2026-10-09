@@ -3,22 +3,27 @@
 //
 // Both are stateless — neither reads this app's database or filesystem on
 // its own. Everything either "knows" is assembled here into one prompt: the
-// target job (from the DB), the user's background and rules (from profile/),
-// and past letters they approved (the few-shot memory). See
-// lib/db/coverLetters.ts.
+// target job (from the DB), the user's background and rules (the profile
+// documents, lib/profileStore.ts), and past letters they approved (the
+// few-shot memory, lib/db/coverLetters.ts). The pipeline that runs this per
+// draft lives in lib/coverLetterPipeline.ts.
 //
 // Gemini API shape below was verified against @google/genai's own type
 // definitions, not the published docs — the docs describe an `output_text`
 // convenience property and model ids this SDK version doesn't have.
 
-import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { GoogleGenAI } from "@google/genai";
 import type { CoverLetterContext, CoverLetterExample } from "@/lib/db/coverLetters";
-import { PROFILE_DIR, NOTES_DIR, EXAMPLES_DIR, EXAMPLE_EXTENSIONS } from "@/lib/profilePaths";
+import {
+  getExampleDocuments,
+  getNoteDocuments,
+  getResume,
+  getWritingStyle,
+} from "@/lib/profileStore";
 
 const DEFAULT_MODEL = "gemini-2.5-flash";
 const MAX_FILE_EXAMPLES = 6;
@@ -45,77 +50,54 @@ function isUnfilledTemplate(text: string): boolean {
 export async function readProfile(): Promise<
   { ok: true; profile: Profile } | { ok: false; problems: string[] }
 > {
-  const files = [
-    { name: "resume.md", label: "profile/resume.md" },
-    { name: "writing-style.md", label: "profile/writing-style.md" },
-  ] as const;
+  const [resume, writingStyle] = await Promise.all([getResume(), getWritingStyle()]);
+  const fields = [
+    { text: resume, label: "Your resume" },
+    { text: writingStyle, label: "Your writing style" },
+  ];
 
   const problems: string[] = [];
-  const contents: string[] = [];
-
-  for (const file of files) {
-    try {
-      const text = await readFile(path.join(PROFILE_DIR, file.name), "utf8");
-      if (isUnfilledTemplate(text)) {
-        problems.push(`${file.label} is still an empty template — fill it in first.`);
-      }
-      contents.push(text);
-    } catch {
-      problems.push(`${file.label} is missing.`);
-      contents.push("");
+  for (const { text, label } of fields) {
+    if (!text.trim()) {
+      problems.push(`${label} is empty — add it on the Settings page (or import your profile/ files there).`);
+    } else if (isUnfilledTemplate(text)) {
+      problems.push(`${label} is still an empty template — fill it in on the Settings page first.`);
     }
   }
 
   if (problems.length > 0) return { ok: false, problems };
   const notes = await readNotes();
-  return { ok: true, profile: { resume: contents[0] + notes, writingStyle: contents[1] } };
+  return { ok: true, profile: { resume: resume + notes, writingStyle } };
 }
 
-// Optional supplementary background — profile/notes/*.md, all combined into
-// the resume's background section. Missing folder is fine (zero notes), not
-// an error, unlike resume.md/writing-style.md above.
+// Optional supplementary background (note documents), combined into the
+// resume's background section. Zero notes is fine.
 async function readNotes(): Promise<string> {
-  let filenames: string[];
-  try {
-    filenames = (await readdir(NOTES_DIR)).filter((f) => f.endsWith(".md")).sort();
-  } catch {
-    return "";
-  }
-  if (filenames.length === 0) return "";
+  const notes = await getNoteDocuments();
+  if (notes.length === 0) return "";
 
-  const sections = await Promise.all(
-    filenames.map(async (filename) => {
-      const text = (await readFile(path.join(NOTES_DIR, filename), "utf8")).trim();
-      return `### ${filename.replace(/\.md$/, "")}\n\n${text}`;
-    })
+  const sections = notes.map(
+    (note) => `### ${note.name.replace(/\.md$/, "")}\n\n${note.content.trim()}`
   );
-
   return `\n\n## Additional notes\n\n${sections.join("\n\n")}`;
 }
 
-// Optional past cover letters — profile/examples/*.md|*.txt, combined with
-// the DB's own few-shot examples (see lib/actions/actions.ts). Whole file
-// content is the letter as-is; no required metadata. Missing folder is fine.
-export async function readFileExamples(): Promise<CoverLetterExample[]> {
-  let filenames: string[];
-  try {
-    filenames = (await readdir(EXAMPLES_DIR))
-      .filter((f) => EXAMPLE_EXTENSIONS.includes(path.extname(f)))
-      .sort();
-  } catch {
-    return [];
-  }
-
-  const examples = await Promise.all(
-    filenames.slice(0, MAX_FILE_EXAMPLES).map(async (filename): Promise<CoverLetterExample | null> => {
-      const text = (await readFile(path.join(EXAMPLES_DIR, filename), "utf8")).trim();
-      return text.length > 0
-        ? { companyName: null, industry: null, roleTitle: null, roleDescriptionExcerpt: null, letter: text }
-        : null;
-    })
-  );
-
-  return examples.filter((e): e is CoverLetterExample => e !== null);
+// Optional past cover letters uploaded on the Settings page, combined with
+// the letters saved on applications (lib/db/coverLetters.ts). The whole
+// document is the letter as-is; no required metadata.
+export async function readProfileExamples(): Promise<CoverLetterExample[]> {
+  const docs = await getExampleDocuments();
+  return docs
+    .slice(0, MAX_FILE_EXAMPLES)
+    .map((doc) => doc.content.trim())
+    .filter((letter) => letter.length > 0)
+    .map((letter) => ({
+      companyName: null,
+      industry: null,
+      roleTitle: null,
+      roleDescriptionExcerpt: null,
+      letter,
+    }));
 }
 
 function renderExamples(examples: CoverLetterExample[]): string {
@@ -142,7 +124,7 @@ function renderExamples(examples: CoverLetterExample[]): string {
     .join("\n\n");
 }
 
-function buildPrompt(
+export function buildPrompt(
   context: CoverLetterContext,
   profile: Profile,
   examples: CoverLetterExample[]
@@ -180,11 +162,9 @@ ${targetJob}
 Output only the cover letter itself — no preamble, no commentary, no subject line, no markdown formatting.`;
 }
 
-export async function draftCoverLetter(
-  context: CoverLetterContext,
-  profile: Profile,
-  examples: CoverLetterExample[]
-): Promise<string> {
+export type ProviderResult = { text: string; model: string };
+
+export async function draftWithGemini(prompt: string): Promise<ProviderResult> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error(
@@ -192,11 +172,9 @@ export async function draftCoverLetter(
     );
   }
 
+  const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
   const ai = new GoogleGenAI({ apiKey });
-  const interaction = await ai.interactions.create({
-    model: process.env.GEMINI_MODEL || DEFAULT_MODEL,
-    input: buildPrompt(context, profile, examples),
-  });
+  const interaction = await ai.interactions.create({ model, input: prompt });
 
   const text = (interaction.outputs ?? [])
     .flatMap((block) => (block.type === "text" ? [block.text] : []))
@@ -209,7 +187,7 @@ export async function draftCoverLetter(
     );
   }
 
-  return text;
+  return { text, model };
 }
 
 // Alternative provider: the already-installed `claude` CLI, run headless
@@ -321,12 +299,7 @@ function runClaudeCli(prompt: string): Promise<string> {
   });
 }
 
-export async function draftCoverLetterViaClaudeCli(
-  context: CoverLetterContext,
-  profile: Profile,
-  examples: CoverLetterExample[]
-): Promise<string> {
-  const prompt = buildPrompt(context, profile, examples);
+export async function draftWithClaudeCli(prompt: string): Promise<ProviderResult> {
   const text = await runClaudeCli(prompt);
 
   if (!text) {
@@ -335,5 +308,6 @@ export async function draftCoverLetterViaClaudeCli(
     );
   }
 
-  return text;
+  // `-p` uses whatever model the CLI is configured with; it isn't reported back.
+  return { text, model: "claude CLI (default model)" };
 }

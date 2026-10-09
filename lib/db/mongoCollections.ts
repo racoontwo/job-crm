@@ -39,7 +39,7 @@ export type ApplicationDoc = {
   roleDescription: string | null;
   coverLetter: string | null;
   source: string | null;
-  appliedDate: string;
+  appliedDate: string | null;
   currentStatus: string;
   jobUrl: string | null;
   createdAt: string;
@@ -56,6 +56,33 @@ export type SavedLinkDoc = {
   status: "new" | "done" | "dismissed";
   applicationId: ObjectId | null;
   receivedAt: string;
+};
+
+export type ProfileDocumentKind = "resume" | "writingStyle" | "note" | "example";
+
+export type ProfileDocumentDoc = {
+  _id?: ObjectId;
+  kind: ProfileDocumentKind;
+  name: string;
+  content: string;
+  updatedAt: string;
+};
+
+export type CoverLetterDraftStatus = "queued" | "generating" | "ready" | "failed";
+
+export type CoverLetterDraftDoc = {
+  _id?: ObjectId;
+  applicationId: ObjectId;
+  status: CoverLetterDraftStatus;
+  provider: "claude" | "gemini";
+  model: string | null;
+  letter: string | null;
+  error: string | null;
+  prompt: string | null;
+  exampleCount: number | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
 };
 
 async function requireDb() {
@@ -77,4 +104,14 @@ export async function applicationsCollection() {
 export async function savedLinksCollection() {
   const db = await requireDb();
   return db.collection<SavedLinkDoc>("savedLinks");
+}
+
+export async function profileDocumentsCollection() {
+  const db = await requireDb();
+  return db.collection<ProfileDocumentDoc>("profileDocuments");
+}
+
+export async function coverLetterDraftsCollection() {
+  const db = await requireDb();
+  return db.collection<CoverLetterDraftDoc>("coverLetterDrafts");
 }

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { getDashboardData } from "@/lib/actions/actions";
 
 const STATUS_COLORS: Record<string, string> = {
+  "To apply": "bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-200",
   Applied: "bg-blue-100 text-blue-800",
   Screening: "bg-amber-100 text-amber-800",
   Interviewing: "bg-purple-100 text-purple-800",

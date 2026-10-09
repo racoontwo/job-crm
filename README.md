@@ -76,6 +76,24 @@ Each application has a "Cover letter" section with a **Generate** button that
 drafts a letter tailored to that specific role, then lets you edit it before
 saving.
 
+### How a draft is made
+
+```
+saved application ─┐
+your profile ──────┼─ buildPrompt ─ AI (Claude CLI / Gemini) ─ draft
+approved letters ──┘
+```
+
+- **Background.** *Generate* queues a draft and returns immediately; the AI
+  runs after the response (`next/server`'s `after()`, `lib/coverLetterPipeline.ts`).
+  The page shows `queued → generating → ready | failed` and refreshes itself
+  while a draft is running, so you can leave the page. A draft stuck for 5
+  minutes (e.g. the dev server restarted mid-run) is marked failed.
+- **History.** Every draft is kept (`cover_letter_drafts` / `coverLetterDrafts`)
+  with its provider, model, timings, example count and the exact prompt sent.
+  A new draft only fills the cover letter if it's empty; otherwise pick it with
+  **Use this version**, so an edited letter is never overwritten.
+
 Generation uses the **Gemini API** (`@google/genai`), not Anthropic — set
 `GEMINI_API_KEY` in `.env.local`; the free tier covers personal use. Everything
 else in the app works without it. Don't add an `@anthropic-ai/sdk` dependency
@@ -117,15 +135,20 @@ Because what's stored is whatever you last *saved*, editing a draft before
 saving is what teaches the next one. Letters get more like your voice the more
 you use it, with no training step.
 
-### The `profile/` directory
+### Your profile
 
-The **Settings** page (`/settings`) edits all of this through the browser —
-textareas for `resume.md`/`writing-style.md`, and upload/delete for
-`notes/`/`examples/`. Editing the files directly on disk works too; the page
-just reads/writes the same files. Either way, `profile/` is gitignored — this
-repo is public, so none of it ever leaves your machine.
+The profile lives in the **database** (`profile_documents` / `profileDocuments`
+— Atlas when connected), edited on the **Settings** page (`/settings`):
+textareas for the resume and writing style, upload/delete for notes and
+example letters. It's not in this (public) repo, but with Atlas connected it
+is stored in your Atlas cluster, not only on this machine.
 
-It holds two required files:
+It used to be files under `profile/` (still gitignored). While the database
+has no profile yet, Settings offers **Import profile/ files**, which copies
+them in and leaves the files as a backup. The names below are those files;
+in the database they keep the same names.
+
+It holds two required documents:
 
 - **`profile/resume.md`** — your background. Headings: Basics, Summary, Skills,
   Experience, Education, Languages, Certifications, Stories worth reusing,

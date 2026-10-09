@@ -22,8 +22,8 @@ export const applications = sqliteTable("applications", {
   roleDescription: text("role_description"),
   coverLetter: text("cover_letter"),
   source: text("source"), // e.g. LinkedIn, referral, direct, job board
-  appliedDate: text("applied_date").notNull(),
-  currentStatus: text("current_status").notNull().default("Applied"),
+  appliedDate: text("applied_date"), // null until you actually apply (status "To apply")
+  currentStatus: text("current_status").notNull().default("To apply"),
   jobUrl: text("job_url"),
   createdAt: text("created_at")
     .notNull()
@@ -35,7 +35,7 @@ export const statusEvents = sqliteTable("status_events", {
   applicationId: integer("application_id")
     .notNull()
     .references(() => applications.id, { onDelete: "cascade" }),
-  status: text("status").notNull(), // Applied, Screening, Interviewing, Offer, Rejected, Withdrawn (free text, extensible)
+  status: text("status").notNull(), // To apply, Applied, Screening, Interviewing, Offer, Rejected, Withdrawn (free text, extensible)
   note: text("note"),
   eventDate: text("event_date").notNull(),
   createdAt: text("created_at")
@@ -72,6 +72,38 @@ export const savedLinks = sqliteTable("saved_links", {
     .default(sql`(current_timestamp)`),
 });
 
+// What the cover-letter generator knows about you: resume, writing rules,
+// extra notes and past letters. Used to be files under profile/; kept as
+// name + content so uploads keep their filenames.
+export const profileDocuments = sqliteTable("profile_documents", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  kind: text("kind").notNull(), // resume | writingStyle | note | example
+  name: text("name").notNull(), // e.g. resume.md, interests.md
+  content: text("content").notNull(),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`(current_timestamp)`),
+});
+
+// Every cover-letter generation, kept as history. Runs in the background:
+// queued → generating → ready | failed.
+export const coverLetterDrafts = sqliteTable("cover_letter_drafts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  applicationId: integer("application_id")
+    .notNull()
+    .references(() => applications.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("queued"),
+  provider: text("provider").notNull(), // claude | gemini
+  model: text("model"),
+  letter: text("letter"),
+  error: text("error"),
+  prompt: text("prompt"), // exactly what was sent, for comparing drafts
+  exampleCount: integer("example_count"),
+  createdAt: text("created_at").notNull(),
+  startedAt: text("started_at"),
+  finishedAt: text("finished_at"),
+});
+
 // Relations
 export const companiesRelations = relations(companies, ({ many }) => ({
   applications: many(applications),
@@ -101,6 +133,7 @@ export const followUpsRelations = relations(followUps, ({ one }) => ({
 }));
 
 export const STATUS_STAGES = [
+  "To apply",
   "Applied",
   "Screening",
   "Interviewing",

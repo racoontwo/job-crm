@@ -8,6 +8,8 @@ import { STATUS_STAGES } from "@/lib/db/schema";
 import { toggleFollowUpDone } from "@/lib/actions/actions";
 import DeleteApplicationButton from "@/components/DeleteApplicationButton";
 import GenerateCoverLetterButton from "@/components/GenerateCoverLetterButton";
+import CoverLetterDrafts from "@/components/CoverLetterDrafts";
+import { listCoverLetterDrafts } from "@/lib/actions/actions";
 import { saveCoverLetter } from "@/lib/actions/actions";
 import FlowSteps from "@/components/FlowSteps";
 
@@ -23,6 +25,8 @@ export default async function ApplicationDetailPage({
   const isCoverLetterStep = step === "cover-letter";
   const app = await getApplication(id);
   if (!app) notFound();
+  const drafts = await listCoverLetterDrafts(app.id);
+  const generating = drafts.some((d) => d.status === "queued" || d.status === "generating");
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -38,6 +42,7 @@ export default async function ApplicationDetailPage({
           <h1 className="text-2xl font-semibold">{app.company.name}</h1>
           <p className="text-neutral-600">{app.roleTitle}</p>
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-neutral-500">
+            <span>{app.appliedDate ? `Applied ${app.appliedDate}` : "Not applied yet"}</span>
             <span>{"★".repeat(app.company.interestLevel)}{"☆".repeat(5 - app.company.interestLevel)}</span>
             {app.company.industry && <span>{app.company.industry}</span>}
             {app.source && <span>via {app.source}</span>}
@@ -85,17 +90,22 @@ export default async function ApplicationDetailPage({
           </h2>
           <GenerateCoverLetterButton
             applicationId={app.id}
-            hasExisting={Boolean(app.coverLetter)}
+            hasDrafts={drafts.length > 0}
+            busy={generating}
           />
         </div>
 
         {!app.coverLetter && (
           <p className="mb-4 text-sm text-neutral-400">
-            No cover letter yet — generate a draft, then edit it below before saving.
+            {generating
+              ? "Writing your draft — it lands here when it's ready. You can leave this page."
+              : "No cover letter yet — generate a draft, then edit it below before saving."}
           </p>
         )}
 
-        <form action={saveCoverLetter} className="space-y-2">
+        {/* Keyed on the saved letter so a draft filling it in (or "Use this
+            version") shows up — the textarea is uncontrolled. */}
+        <form key={app.coverLetter ?? ""} action={saveCoverLetter} className="space-y-2">
           <input type="hidden" name="applicationId" value={app.id} />
           <textarea
             name="coverLetter"
@@ -116,7 +126,42 @@ export default async function ApplicationDetailPage({
             </button>
           </div>
         </form>
+
+        <CoverLetterDrafts drafts={drafts} currentLetter={app.coverLetter} />
       </section>
+
+      {app.currentStatus === "To apply" && (
+        <section className="rounded-lg border border-sky-200 bg-sky-50 p-5">
+          <form action={addStatusEvent} className="flex flex-wrap items-end justify-between gap-4">
+            <input type="hidden" name="applicationId" value={app.id} />
+            <input type="hidden" name="status" value="Applied" />
+            <div>
+              <h2 className="text-sm font-semibold text-sky-900">Sent it?</h2>
+              <p className="mt-1 text-sm text-sky-800">
+                Once you&apos;ve submitted the application, mark it applied to record the date.
+              </p>
+            </div>
+            <div className="flex items-end gap-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-sky-900">Applied on</label>
+                <input
+                  type="date"
+                  name="eventDate"
+                  defaultValue={today}
+                  max={today}
+                  className="rounded-md border border-sky-300 bg-white px-2 py-1.5 text-sm"
+                />
+              </div>
+              <button
+                type="submit"
+                className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700"
+              >
+                Mark as applied
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
 
       <section className="rounded-lg border border-neutral-200 bg-white p-5">
         <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-neutral-500">

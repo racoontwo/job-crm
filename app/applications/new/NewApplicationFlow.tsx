@@ -6,6 +6,9 @@ import type { ExtractedJobPosting } from "@/lib/jobPosting";
 import { findJobSource, inferSourceLabel } from "@/lib/jobSources";
 import type { SavedLinkSummary } from "@/lib/db/types";
 import FlowSteps from "@/components/FlowSteps";
+import { jobUrlKey } from "@/lib/jobUrl";
+
+type ExistingJob = { key: string; id: string; label: string; status: string };
 
 const inputClass =
   "w-full rounded-md border border-neutral-300 px-3 py-2 text-sm";
@@ -37,10 +40,12 @@ function useDetectedSource(url: string) {
 
 export default function NewApplicationFlow({
   existingCompanies,
+  existingJobs = [],
   initialExtracted = null,
   savedLink = null,
 }: {
   existingCompanies: { id: string; name: string }[];
+  existingJobs?: ExistingJob[];
   initialExtracted?: ExtractedJobPosting | null;
   savedLink?: SavedLinkSummary | null;
 }) {
@@ -126,6 +131,7 @@ export default function NewApplicationFlow({
     !extracted.roleDescription.trim() && "role details",
   ].filter((f): f is string => Boolean(f));
   const extractionSucceeded = missingFields.length === 0;
+  const duplicateOf = existingJobs.find((j) => j.key === jobUrlKey(extracted.jobUrl));
 
   return (
     <div className="mx-auto max-w-lg">
@@ -146,6 +152,15 @@ export default function NewApplicationFlow({
           ? "Extraction successful — company, role, and description were all found."
           : `Extraction incomplete — couldn't find: ${missingFields.join(", ")}.`}
       </div>
+      {duplicateOf && (
+        <p className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          You already have this job:{" "}
+          <a href={`/applications/${duplicateOf.id}`} className="font-medium underline">
+            {duplicateOf.label}
+          </a>{" "}
+          ({duplicateOf.status}). Saving again creates a second application.
+        </p>
+      )}
       {extracted.warning && (
         <p className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
           {extracted.warning}
@@ -250,7 +265,8 @@ export default function NewApplicationFlow({
         </div>
 
         <p className="text-xs text-neutral-400">
-          Applied date is stamped automatically the moment you hit Save application.
+          Saved as &ldquo;To apply&rdquo; &mdash; you&apos;ll mark it applied after writing the cover
+          letter, which records the applied date.
         </p>
 
         <div className="flex gap-3">

@@ -1,6 +1,6 @@
-// Shared by lib/coverLetterGenerator.ts (reads these for the AI prompt) and
-// lib/profileFiles.ts (CRUD for the Settings page) — one source of truth so
-// the two never drift apart on where these files live.
+// Where the old profile/ files live. Only read by importProfileFiles() in
+// lib/profileStore.ts, which copies them into the database once — the
+// profile itself is stored in the database now.
 import path from "node:path";
 
 export const PROFILE_DIR = path.join(process.cwd(), "profile");

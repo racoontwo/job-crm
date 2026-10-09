@@ -6,6 +6,7 @@
 import http from "node:http";
 import https from "node:https";
 import { findJobSource, inferSourceLabel } from "./jobSources";
+import { cleanJobUrl } from "./jobUrl";
 
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36";
@@ -55,19 +56,6 @@ function httpsGetFollowingRedirects(
     req.on("error", reject);
     req.end();
   });
-}
-
-// LinkedIn's "copy link" from a job search results page produces a
-// /jobs/search-results/?currentJobId=... URL, which requires a logged-in
-// session and redirects to a sign-in wall. The canonical /jobs/view/<id>
-// URL for the same posting is public — rewrite to that before fetching.
-function normalizeJobUrl(url: URL): URL {
-  const host = url.hostname.replace(/^www\./, "");
-  if (host === "linkedin.com" && url.pathname.startsWith("/jobs/search-results")) {
-    const jobId = url.searchParams.get("currentJobId");
-    if (jobId) return new URL(`https://www.linkedin.com/jobs/view/${jobId}`);
-  }
-  return url;
 }
 
 // When a LinkedIn listing has no JobPosting JSON-LD (common — seems to
@@ -255,7 +243,7 @@ export async function extractJobPostingFromUrl(rawUrl: string): Promise<Extracte
     return { ...empty, error: "Only http(s) URLs are supported." };
   }
 
-  parsed = normalizeJobUrl(parsed);
+  parsed = new URL(cleanJobUrl(parsed.toString()));
   const source = inferSourceLabel(parsed.hostname);
   const knownSource = findJobSource(parsed.hostname);
   if (knownSource?.status === "blocked") {
