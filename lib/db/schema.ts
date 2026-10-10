@@ -22,8 +22,8 @@ export const applications = sqliteTable("applications", {
   roleDescription: text("role_description"),
   coverLetter: text("cover_letter"),
   source: text("source"), // e.g. LinkedIn, referral, direct, job board
-  appliedDate: text("applied_date").notNull(),
-  currentStatus: text("current_status").notNull().default("Applied"),
+  appliedDate: text("applied_date"), // null until you actually apply (status "To apply")
+  currentStatus: text("current_status").notNull().default("To apply"),
   jobUrl: text("job_url"),
   createdAt: text("created_at")
     .notNull()
@@ -35,7 +35,7 @@ export const statusEvents = sqliteTable("status_events", {
   applicationId: integer("application_id")
     .notNull()
     .references(() => applications.id, { onDelete: "cascade" }),
-  status: text("status").notNull(), // Applied, Screening, Interviewing, Offer, Rejected, Withdrawn (free text, extensible)
+  status: text("status").notNull(), // To apply, Applied, Screening, Interviewing, Offer, Rejected, Withdrawn (free text, extensible)
   note: text("note"),
   eventDate: text("event_date").notNull(),
   createdAt: text("created_at")
@@ -54,6 +54,41 @@ export const followUps = sqliteTable("follow_ups", {
   createdAt: text("created_at")
     .notNull()
     .default(sql`(current_timestamp)`),
+});
+
+// Step 1 of the new-application flow: a link shared from the phone (or
+// pasted here) waiting to be fetched. Becomes "done" once an application is
+// saved from it, or "dismissed" if it's not worth applying to.
+export const savedLinks = sqliteTable("saved_links", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  url: text("url").notNull(),
+  sharedText: text("shared_text"), // whatever the share menu sent alongside the URL
+  status: text("status").notNull().default("new"), // new | done | dismissed
+  applicationId: integer("application_id").references(() => applications.id, {
+    onDelete: "set null",
+  }),
+  receivedAt: text("received_at")
+    .notNull()
+    .default(sql`(current_timestamp)`),
+});
+
+// Every cover-letter generation, kept as history. Runs in the background:
+// queued → generating → ready | failed.
+export const coverLetterDrafts = sqliteTable("cover_letter_drafts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  applicationId: integer("application_id")
+    .notNull()
+    .references(() => applications.id, { onDelete: "cascade" }),
+  status: text("status").notNull().default("queued"),
+  provider: text("provider").notNull(), // claude | gemini
+  model: text("model"),
+  letter: text("letter"),
+  error: text("error"),
+  prompt: text("prompt"), // exactly what was sent, for comparing drafts
+  exampleCount: integer("example_count"),
+  createdAt: text("created_at").notNull(),
+  startedAt: text("started_at"),
+  finishedAt: text("finished_at"),
 });
 
 // Relations
@@ -85,6 +120,7 @@ export const followUpsRelations = relations(followUps, ({ one }) => ({
 }));
 
 export const STATUS_STAGES = [
+  "To apply",
   "Applied",
   "Screening",
   "Interviewing",

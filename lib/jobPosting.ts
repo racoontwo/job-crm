@@ -6,6 +6,7 @@
 import http from "node:http";
 import https from "node:https";
 import { findJobSource, inferSourceLabel } from "./jobSources";
+import { cleanJobUrl } from "./jobUrl";
 
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36";
@@ -55,19 +56,6 @@ function httpsGetFollowingRedirects(
     req.on("error", reject);
     req.end();
   });
-}
-
-// LinkedIn's "copy link" from a job search results page produces a
-// /jobs/search-results/?currentJobId=... URL, which requires a logged-in
-// session and redirects to a sign-in wall. The canonical /jobs/view/<id>
-// URL for the same posting is public — rewrite to that before fetching.
-function normalizeJobUrl(url: URL): URL {
-  const host = url.hostname.replace(/^www\./, "");
-  if (host === "linkedin.com" && url.pathname.startsWith("/jobs/search-results")) {
-    const jobId = url.searchParams.get("currentJobId");
-    if (jobId) return new URL(`https://www.linkedin.com/jobs/view/${jobId}`);
-  }
-  return url;
 }
 
 // When a LinkedIn listing has no JobPosting JSON-LD (common — seems to
@@ -130,6 +118,26 @@ function extractLinkedInDescriptionHtml(html: string): string | undefined {
 function isLoginWall(finalUrl: string): boolean {
   const path = new URL(finalUrl).pathname;
   return path.startsWith("/uas/login") || path.startsWith("/authwall") || path.startsWith("/login");
+}
+
+// What can be read off the link itself, for when the page can't be fetched.
+// Upwork job links carry the title as a slug ("Looking-for-...-translator_~0221..."),
+// with search-highlight markup ("span-class-highlight-") baked in. Upwork
+// clients are anonymous, so there's no company name to find.
+function guessFromUrl(url: URL): { companyName: string; roleTitle: string } {
+  const host = url.hostname.replace(/^www\./, "");
+  if (host === "upwork.com" || host.endsWith(".upwork.com")) {
+    const slug = url.pathname.match(/\/jobs\/(.+?)_~\w+/)?.[1];
+    const roleTitle = slug
+      ? decodeURIComponent(slug)
+          .replace(/span-class-highlight-/gi, "")
+          .replace(/-span(?=-|$)/gi, "")
+          .replace(/-+/g, " ")
+          .trim()
+      : "";
+    return { companyName: "Upwork client", roleTitle };
+  }
+  return { companyName: "", roleTitle: "" };
 }
 
 export type ExtractedJobPosting = {
@@ -255,13 +263,15 @@ export async function extractJobPostingFromUrl(rawUrl: string): Promise<Extracte
     return { ...empty, error: "Only http(s) URLs are supported." };
   }
 
-  parsed = normalizeJobUrl(parsed);
+  parsed = new URL(cleanJobUrl(parsed.toString()));
   const source = inferSourceLabel(parsed.hostname);
+  // Returned with every error below, so filling the form in by hand starts
+  // from the cleaned link and whatever the link itself gives away.
+  const fallback = { ...empty, ...guessFromUrl(parsed), source, jobUrl: parsed.toString() };
   const knownSource = findJobSource(parsed.hostname);
   if (knownSource?.status === "blocked") {
     return {
-      ...empty,
-      source,
+      ...fallback,
       error: knownSource.note ?? `${source} blocks automated requests. You can still fill this in by hand.`,
     };
   }
@@ -271,21 +281,19 @@ export async function extractJobPostingFromUrl(rawUrl: string): Promise<Extracte
     const res = await httpsGetFollowingRedirects(parsed.toString());
     if (isLoginWall(res.finalUrl)) {
       return {
-        ...empty,
-        source,
+        ...fallback,
         error: "That link requires signing in to view. Try copying the link from the job's own page instead of a search-results page, or fill this in by hand.",
       };
     }
     if (res.status < 200 || res.status >= 300) {
       return {
-        ...empty,
-        source,
+        ...fallback,
         error: `Couldn't fetch that page (HTTP ${res.status}). You can still fill this in by hand.`,
       };
     }
     html = res.body;
   } catch {
-    return { ...empty, source, error: "Couldn't reach that URL. You can still fill this in by hand." };
+    return { ...fallback, error: "Couldn't reach that URL. You can still fill this in by hand." };
   }
 
   const jsonLdObjects = extractJsonLdObjects(html);

@@ -1,9 +1,14 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { createCompanyAndApplication, extractJobPosting } from "@/lib/actions/actions";
 import type { ExtractedJobPosting } from "@/lib/jobPosting";
 import { findJobSource, inferSourceLabel } from "@/lib/jobSources";
+import type { SavedLinkSummary } from "@/lib/db/types";
+import FlowSteps from "@/components/FlowSteps";
+import { jobUrlKey } from "@/lib/jobUrl";
+
+type ExistingJob = { key: string; id: string; label: string; status: string };
 
 const inputClass =
   "w-full rounded-md border border-neutral-300 px-3 py-2 text-sm";
@@ -35,32 +40,72 @@ function useDetectedSource(url: string) {
 
 export default function NewApplicationFlow({
   existingCompanies,
+  existingJobs = [],
   initialExtracted = null,
+  savedLink = null,
 }: {
   existingCompanies: { id: string; name: string }[];
+  existingJobs?: ExistingJob[];
   initialExtracted?: ExtractedJobPosting | null;
+  savedLink?: SavedLinkSummary | null;
 }) {
-  const [url, setUrl] = useState(initialExtracted?.jobUrl ?? "");
+  const [url, setUrl] = useState(initialExtracted?.jobUrl ?? savedLink?.url ?? "");
   const [extracted, setExtracted] = useState<ExtractedJobPosting | null>(initialExtracted);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  // A failed fetch still carries the cleaned link and guesses from it, which
+  // "Fill in by hand" starts the form from.
+  const [failed, setFailed] = useState<ExtractedJobPosting | null>(null);
   const [isPending, startTransition] = useTransition();
   const detectedSource = useDetectedSource(url);
 
   function handleExtract() {
-    setFetchError(null);
+    setFailed(null);
     startTransition(async () => {
       const result = await extractJobPosting(url);
       if (result.error) {
-        setFetchError(result.error);
+        setFailed(result);
         return;
       }
       setExtracted(result);
     });
   }
 
+  function fillInByHand() {
+    const base = failed ?? {
+      companyName: "",
+      companyWebsite: "",
+      industry: "",
+      roleTitle: "",
+      roleDescription: "",
+      source: "",
+      jobUrl: url,
+      interestLevel: 3,
+    };
+    // Text shared along with the link from the phone is usually the title.
+    const sharedTitle = savedLink?.sharedText?.trim();
+    setExtracted({
+      ...base,
+      roleTitle: base.roleTitle || (sharedTitle && sharedTitle.length <= 120 ? sharedTitle : ""),
+      error: undefined,
+      warning:
+        "Couldn't read the page, so fill in what's missing. Copy the job description from the posting into Role details — the cover letter is written from it.",
+    });
+  }
+
+  // Coming from the inbox, the link is already saved (step 1) — go straight
+  // to fetching it. The ref keeps dev-mode's double effect run from fetching twice.
+  const autoFetched = useRef(false);
+  useEffect(() => {
+    if (savedLink && !initialExtracted && !autoFetched.current) {
+      autoFetched.current = true;
+      handleExtract();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   if (!extracted) {
     return (
       <div className="mx-auto max-w-lg">
+        <FlowSteps current={2} />
         <h1 className="mb-6 text-xl font-semibold">New application</h1>
         <label className="mb-1 block text-sm font-medium">Job posting URL</label>
         <input
@@ -81,25 +126,40 @@ export default function NewApplicationFlow({
             >
               Detected: {detectedSource.label}
             </span>
-            {detectedSource.status === "blocked" && (
+            {detectedSource.status === "blocked" && !failed && (
               <span className="text-xs text-red-600">{detectedSource.note}</span>
             )}
             {detectedSource.status === "unknown" && (
-              <span className="text-xs text-neutral-400">
+              <span className="text-xs text-neutral-500">
                 Not a known job board — will try generic parsing.
               </span>
             )}
           </div>
         )}
-        {fetchError && <p className="mt-2 text-sm text-red-600">{fetchError}</p>}
-        <button
-          type="button"
-          disabled={!url || isPending}
-          onClick={handleExtract}
-          className="mt-4 w-full rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-50"
-        >
-          {isPending ? "Reading posting..." : "Fetch details"}
-        </button>
+        {failed?.error && <p className="mt-2 text-sm text-red-600">{failed.error}</p>}
+        <div className="mt-4 flex gap-3">
+          <button
+            type="button"
+            disabled={!url || isPending}
+            onClick={handleExtract}
+            className={`w-full rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50 ${
+              failed
+                ? "border border-neutral-300 hover:bg-neutral-50"
+                : "bg-neutral-900 text-white hover:bg-neutral-700"
+            }`}
+          >
+            {isPending ? "Reading posting..." : failed ? "Try again" : "Fetch details"}
+          </button>
+          {failed && (
+            <button
+              type="button"
+              onClick={fillInByHand}
+              className="w-full rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700"
+            >
+              Fill in by hand
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -110,11 +170,13 @@ export default function NewApplicationFlow({
     !extracted.roleDescription.trim() && "role details",
   ].filter((f): f is string => Boolean(f));
   const extractionSucceeded = missingFields.length === 0;
+  const duplicateOf = existingJobs.find((j) => j.key === jobUrlKey(extracted.jobUrl));
 
   return (
     <div className="mx-auto max-w-lg">
+      <FlowSteps current={2} />
       <h1 className="mb-2 text-xl font-semibold">Review & confirm</h1>
-      <p className="mb-4 truncate text-xs text-neutral-400">{extracted.jobUrl}</p>
+      <p className="mb-4 truncate text-xs text-neutral-500">{extracted.jobUrl}</p>
       <div
         className={`mb-4 flex items-center gap-2 rounded-md px-3 py-2 text-xs ${
           extractionSucceeded ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
@@ -129,6 +191,15 @@ export default function NewApplicationFlow({
           ? "Extraction successful — company, role, and description were all found."
           : `Extraction incomplete — couldn't find: ${missingFields.join(", ")}.`}
       </div>
+      {duplicateOf && (
+        <p className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          You already have this job:{" "}
+          <a href={`/applications/${duplicateOf.id}`} className="font-medium underline">
+            {duplicateOf.label}
+          </a>{" "}
+          ({duplicateOf.status}). Saving again creates a second application.
+        </p>
+      )}
       {extracted.warning && (
         <p className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
           {extracted.warning}
@@ -136,6 +207,7 @@ export default function NewApplicationFlow({
       )}
       <form action={createCompanyAndApplication} className="space-y-4">
         <input type="hidden" name="jobUrl" value={extracted.jobUrl} />
+        {savedLink && <input type="hidden" name="savedLinkId" value={savedLink.id} />}
 
         <div>
           <label className="mb-1 block text-sm font-medium">Company name</label>
@@ -152,7 +224,7 @@ export default function NewApplicationFlow({
               <option key={c.id} value={c.name} />
             ))}
           </datalist>
-          <p className="mt-1 text-xs text-neutral-400">
+          <p className="mt-1 text-xs text-neutral-500">
             Type an existing name to reuse that company, or a new one to create it.
           </p>
         </div>
@@ -178,7 +250,7 @@ export default function NewApplicationFlow({
             />
           </div>
         </div>
-        <p className="-mt-2 text-xs text-neutral-400">
+        <p className="-mt-2 text-xs text-neutral-500">
           Only used the first time you add this company.
         </p>
 
@@ -225,14 +297,15 @@ export default function NewApplicationFlow({
             <option value={4}>★★★★☆</option>
             <option value={5}>★★★★★ — dream company</option>
           </select>
-          <p className="mt-1 text-xs text-neutral-400">
+          <p className="mt-1 text-xs text-neutral-500">
             Can&apos;t be read off the posting — set it yourself. Only used the first time you
             add this company.
           </p>
         </div>
 
-        <p className="text-xs text-neutral-400">
-          Applied date is stamped automatically the moment you hit Save application.
+        <p className="text-xs text-neutral-500">
+          Saved as &ldquo;To apply&rdquo; &mdash; you&apos;ll mark it applied after writing the cover
+          letter, which records the applied date.
         </p>
 
         <div className="flex gap-3">

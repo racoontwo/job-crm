@@ -40,7 +40,7 @@ export default function SourcesPage() {
               <tr key={source.domain}>
                 <td className="whitespace-nowrap px-4 py-2 font-medium text-neutral-800">
                   {source.label}
-                  <span className="ml-2 text-xs font-normal text-neutral-400">
+                  <span className="ml-2 text-xs font-normal text-neutral-500">
                     {source.domain}
                   </span>
                 </td>

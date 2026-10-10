@@ -22,6 +22,12 @@ export default function RootLayout({
             </Link>
             <div className="flex items-center gap-4">
               <Link
+                href="/inbox"
+                className="text-sm font-medium text-neutral-600 hover:text-neutral-900"
+              >
+                Inbox
+              </Link>
+              <Link
                 href="/sources"
                 className="text-sm font-medium text-neutral-600 hover:text-neutral-900"
               >

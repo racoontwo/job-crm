@@ -33,7 +33,7 @@ export type ApplicationSummary = {
   roleDescription: string | null;
   coverLetter: string | null;
   source: string | null;
-  appliedDate: string;
+  appliedDate: string | null;
   currentStatus: string;
   jobUrl: string | null;
   createdAt: string;
@@ -45,4 +45,11 @@ export type ApplicationSummary = {
 export type DashboardApplication = ApplicationSummary & {
   daysSinceUpdate: number | null;
   openFollowUps: FollowUpSummary[];
+};
+
+export type SavedLinkSummary = {
+  id: string;
+  url: string;
+  sharedText: string | null;
+  receivedAt: string;
 };
