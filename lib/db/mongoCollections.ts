@@ -58,16 +58,6 @@ export type SavedLinkDoc = {
   receivedAt: string;
 };
 
-export type ProfileDocumentKind = "resume" | "writingStyle" | "note" | "example";
-
-export type ProfileDocumentDoc = {
-  _id?: ObjectId;
-  kind: ProfileDocumentKind;
-  name: string;
-  content: string;
-  updatedAt: string;
-};
-
 export type CoverLetterDraftStatus = "queued" | "generating" | "ready" | "failed";
 
 export type CoverLetterDraftDoc = {
@@ -104,11 +94,6 @@ export async function applicationsCollection() {
 export async function savedLinksCollection() {
   const db = await requireDb();
   return db.collection<SavedLinkDoc>("savedLinks");
-}
-
-export async function profileDocumentsCollection() {
-  const db = await requireDb();
-  return db.collection<ProfileDocumentDoc>("profileDocuments");
 }
 
 export async function coverLetterDraftsCollection() {

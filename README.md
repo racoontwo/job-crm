@@ -137,16 +137,11 @@ you use it, with no training step.
 
 ### Your profile
 
-The profile lives in the **database** (`profile_documents` / `profileDocuments`
-— Atlas when connected), edited on the **Settings** page (`/settings`):
-textareas for the resume and writing style, upload/delete for notes and
-example letters. It's not in this (public) repo, but with Atlas connected it
-is stored in your Atlas cluster, not only on this machine.
-
-It used to be files under `profile/` (still gitignored). While the database
-has no profile yet, Settings offers **Import profile/ files**, which copies
-them in and leaves the files as a backup. The names below are those files;
-in the database they keep the same names.
+The profile is plain files in **`profile/`** on your laptop — gitignored, so
+it's never in this (public) repo, and deliberately not in the database (Atlas
+or SQLite). Edit them in your editor, or on the **Settings** page
+(`/settings`), which reads and writes the same files: textareas for the resume
+and writing style, upload/delete for notes and example letters.
 
 It holds two required documents:
 

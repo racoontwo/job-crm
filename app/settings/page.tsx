@@ -6,7 +6,6 @@ import {
   deleteNoteAction,
   uploadExamplesAction,
   deleteExampleAction,
-  importProfileFilesAction,
 } from "@/lib/actions/actions";
 
 function formatBytes(bytes: number): string {
@@ -22,7 +21,7 @@ const uploadButtonClass =
   "rounded-md border border-neutral-300 px-3 py-1.5 text-sm font-medium hover:bg-neutral-50";
 
 export default async function SettingsPage() {
-  const { resume, writingStyle, notes, examples, canImportFiles } = await getProfileSettings();
+  const { resume, writingStyle, notes, examples } = await getProfileSettings();
 
   return (
     <div className="space-y-6">
@@ -30,32 +29,19 @@ export default async function SettingsPage() {
         <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
         <p className="mt-1 text-sm text-neutral-500">
           The documents the cover-letter generator reads: your background, writing rules,
-          extra notes, and past letters. Stored in your database (Atlas when connected, the
-          local SQLite file otherwise) — not in this repo.
+          extra notes, and past letters. They&apos;re files in the <code>profile/</code> folder
+          on this laptop (kept out of git) — edit them here or in your editor.
         </p>
       </div>
 
-      {canImportFiles && (
-        <section className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-sky-200 bg-sky-50 p-5">
-          <p className="text-sm text-sky-900">
-            Your profile is still in the <code>profile/</code> folder. Import it into the database
-            so the cover-letter generator can read it. The files stay where they are as a backup.
-          </p>
-          <form action={importProfileFilesAction}>
-            <button type="submit" className={saveButtonClass}>
-              Import profile/ files
-            </button>
-          </form>
-        </section>
-      )}
 
       <section className="rounded-lg border border-neutral-200 bg-white p-5">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
           Resume
         </h2>
         <p className="mb-3 mt-1 text-xs text-neutral-400">
-          Your background. The generator may only use facts that appear
-          here.
+          <code>profile/resume.md</code> — your background. The generator may only use facts
+          that appear here.
         </p>
         <form action={saveResumeAction} className="space-y-2">
           <textarea name="content" rows={16} defaultValue={resume} className={textareaClass} />
@@ -70,8 +56,8 @@ export default async function SettingsPage() {
           Writing style
         </h2>
         <p className="mb-3 mt-1 text-xs text-neutral-400">
-          Hard rules: language, tone, length, structure, banned
-          phrases, signature.
+          <code>profile/writing-style.md</code> — hard rules: language, tone, length,
+          structure, banned phrases, signature.
         </p>
         <form action={saveWritingStyleAction} className="space-y-2">
           <textarea
@@ -91,7 +77,7 @@ export default async function SettingsPage() {
           Notes
         </h2>
         <p className="mb-3 mt-1 text-xs text-neutral-400">
-          Notes (.md) — extra background, optional. Every file here is combined into the
+          <code>profile/notes/</code> (.md) — extra background, optional. Every file here is combined into the
           resume.
         </p>
         <ul className="mb-4 divide-y divide-neutral-100">
@@ -126,7 +112,7 @@ export default async function SettingsPage() {
           Example cover letters
         </h2>
         <p className="mb-3 mt-1 text-xs text-neutral-400">
-          Example letters (.md or .txt) — past letters you&apos;ve written, optional (up to 6
+          <code>profile/examples/</code> (.md or .txt) — past letters you&apos;ve written, optional (up to 6
           used). Combined with letters you save through this app.
         </p>
         <ul className="mb-4 divide-y divide-neutral-100">

@@ -1,6 +1,5 @@
-// Where the old profile/ files live. Only read by importProfileFiles() in
-// lib/profileStore.ts, which copies them into the database once — the
-// profile itself is stored in the database now.
+// Where your profile lives: profile/ on this laptop (gitignored), read and
+// written by lib/profileStore.ts.
 import path from "node:path";
 
 export const PROFILE_DIR = path.join(process.cwd(), "profile");

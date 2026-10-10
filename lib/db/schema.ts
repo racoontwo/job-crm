@@ -72,19 +72,6 @@ export const savedLinks = sqliteTable("saved_links", {
     .default(sql`(current_timestamp)`),
 });
 
-// What the cover-letter generator knows about you: resume, writing rules,
-// extra notes and past letters. Used to be files under profile/; kept as
-// name + content so uploads keep their filenames.
-export const profileDocuments = sqliteTable("profile_documents", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  kind: text("kind").notNull(), // resume | writingStyle | note | example
-  name: text("name").notNull(), // e.g. resume.md, interests.md
-  content: text("content").notNull(),
-  updatedAt: text("updated_at")
-    .notNull()
-    .default(sql`(current_timestamp)`),
-});
-
 // Every cover-letter generation, kept as history. Runs in the background:
 // queued → generating → ready | failed.
 export const coverLetterDrafts = sqliteTable("cover_letter_drafts", {

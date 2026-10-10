@@ -30,9 +30,6 @@ import {
   listExamples,
   saveExample,
   deleteExample,
-  hasProfileInDatabase,
-  profileFilesExist,
-  importProfileFiles,
 } from "@/lib/profileStore";
 import {
   companiesCollection,
@@ -528,31 +525,17 @@ export async function deleteApplication(applicationId: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Settings — viewing/editing/uploading/deleting the profile documents the
+// Settings — viewing/editing/uploading/deleting the profile/ files the
 // cover-letter generator reads (see lib/coverLetterGenerator.ts, lib/profileStore.ts).
 
 export async function getProfileSettings() {
-  const [resume, writingStyle, notes, examples, inDatabase, filesExist] = await Promise.all([
+  const [resume, writingStyle, notes, examples] = await Promise.all([
     getResume(),
     getWritingStyle(),
     listNotes(),
     listExamples(),
-    hasProfileInDatabase(),
-    profileFilesExist(),
   ]);
-  return {
-    resume,
-    writingStyle,
-    notes,
-    examples,
-    // Offer the one-time import while the old profile/ files are the only copy.
-    canImportFiles: filesExist && !inDatabase,
-  };
-}
-
-export async function importProfileFilesAction() {
-  await importProfileFiles();
-  revalidatePath("/settings");
+  return { resume, writingStyle, notes, examples };
 }
 
 export async function saveResumeAction(formData: FormData) {

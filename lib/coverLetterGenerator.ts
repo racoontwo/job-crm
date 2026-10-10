@@ -3,8 +3,8 @@
 //
 // Both are stateless — neither reads this app's database or filesystem on
 // its own. Everything either "knows" is assembled here into one prompt: the
-// target job (from the DB), the user's background and rules (the profile
-// documents, lib/profileStore.ts), and past letters they approved (the
+// target job (from the DB), the user's background and rules (the profile/
+// files, lib/profileStore.ts), and past letters they approved (the
 // few-shot memory, lib/db/coverLetters.ts). The pipeline that runs this per
 // draft lives in lib/coverLetterPipeline.ts.
 //
