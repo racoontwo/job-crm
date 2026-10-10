@@ -14,11 +14,11 @@ function formatBytes(bytes: number): string {
 
 function fileStatus(file: ProfileFileInfo): { text: string; className: string } {
   if (file.error) return { text: file.error, className: "text-red-600" };
-  if (file.template) return { text: "unfilled template — not used", className: "text-amber-600" };
+  if (file.template) return { text: "unfilled template — not used", className: "text-amber-700" };
   if (file.words === 0) {
-    return { text: "no readable text (scanned?) — not used", className: "text-amber-600" };
+    return { text: "no readable text (scanned?) — not used", className: "text-amber-700" };
   }
-  return { text: `${file.words.toLocaleString("en-GB")} words`, className: "text-neutral-400" };
+  return { text: `${file.words.toLocaleString("en-GB")} words`, className: "text-neutral-600" };
 }
 
 // One section of the profile on the Settings page: drop files (or click to
@@ -65,8 +65,8 @@ export default function ProfileDropZone({
 
   return (
     <section className="rounded-lg border border-neutral-200 bg-white p-5">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">{title}</h2>
-      <p className="mb-3 mt-1 text-xs text-neutral-400">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-600">{title}</h2>
+      <p className="mb-3 mt-1 text-xs text-neutral-600">
         <code>{folder}</code> — {description}
       </p>
 
@@ -76,10 +76,10 @@ export default function ProfileDropZone({
             const status = fileStatus(file);
             return (
               <li key={file.filename} className="flex items-center justify-between gap-4 py-2 text-sm">
-                <span className="truncate">{file.filename}</span>
+                <span className="truncate text-neutral-900">{file.filename}</span>
                 <div className="flex shrink-0 items-center gap-3 text-xs">
                   <span className={status.className}>{status.text}</span>
-                  <span className="text-neutral-400">{formatBytes(file.size)}</span>
+                  <span className="text-neutral-600">{formatBytes(file.size)}</span>
                   <form action={deleteProfileFileAction}>
                     <input type="hidden" name="section" value={section} />
                     <input type="hidden" name="filename" value={file.filename} />
@@ -111,13 +111,13 @@ export default function ProfileDropZone({
         className={`flex w-full flex-col items-center justify-center rounded-md border-2 border-dashed px-4 py-8 text-sm transition-colors ${
           dragging
             ? "border-neutral-900 bg-neutral-50 text-neutral-900"
-            : "border-neutral-300 text-neutral-500 hover:border-neutral-400"
+            : "border-neutral-300 text-neutral-700 hover:border-neutral-400"
         } disabled:opacity-60`}
       >
         <span className="font-medium">
           {isPending ? "Uploading…" : "Drop files here, or click to choose"}
         </span>
-        <span className="mt-1 text-xs text-neutral-400">PDF, Word (.docx), .md or .txt — up to 10 MB each</span>
+        <span className="mt-1 text-xs text-neutral-600">PDF, Word (.docx), .md or .txt — up to 10 MB each</span>
       </button>
       <input
         ref={inputRef}

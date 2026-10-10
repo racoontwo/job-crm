@@ -9,7 +9,7 @@ export default async function SettingsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
-        <p className="mt-1 text-sm text-neutral-500">
+        <p className="mt-1 text-sm text-neutral-600">
           The source material the cover-letter generator reads. Dropped files are saved in the{" "}
           <code>profile/</code> folder on this laptop (kept out of git) — you can also copy files
           into those folders yourself.
