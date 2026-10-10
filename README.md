@@ -48,7 +48,7 @@ with their parent application.
 ## Adding a job in three steps
 
 1. **Save the link.** Share a job posting from your phone ("Save to Job CRM" in the share menu), or paste it into **Inbox**. Nothing is fetched yet.
-2. **Fetch details.** In **Inbox**, hit *Fetch details →* on a link. The posting is scraped and you review company, role and description before saving. For sites that block the server (Glassdoor), open the link on the laptop and use the userscript instead; the inbox entry is cleared once an application with that URL is saved.
+2. **Fetch details.** In **Inbox**, hit *Fetch details →* on a link. The posting is scraped and you review company, role and description before saving. For sites that block the server (Glassdoor, Indeed, Upwork), open the link on the laptop and use the userscript instead; the inbox entry is cleared once an application with that URL is saved.
 3. **Cover letter.** Saving lands you on the application's cover-letter section to generate a draft.
 
 ### Sharing from your Android phone
