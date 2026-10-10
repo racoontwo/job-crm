@@ -15,7 +15,7 @@ export default function FlowSteps({ current }: { current: 1 | 2 | 3 }) {
             <span
               className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold ${
                 state === "upcoming"
-                  ? "border border-neutral-300 text-neutral-400"
+                  ? "border border-neutral-300 text-neutral-500"
                   : "bg-neutral-900 text-white"
               }`}
             >

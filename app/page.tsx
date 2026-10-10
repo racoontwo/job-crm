@@ -21,7 +21,7 @@ export default async function DashboardPage() {
   }
 
   return (
-    <div className="flex min-h-[50vh] items-center justify-center rounded-lg border border-dashed border-neutral-300 p-10 text-center text-neutral-400">
+    <div className="flex min-h-[50vh] items-center justify-center rounded-lg border border-dashed border-neutral-300 p-10 text-center text-neutral-500">
       Select an application from the list to see details.
     </div>
   );

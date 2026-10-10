@@ -58,7 +58,7 @@ export default function AppRowLink({
                 ? "text-neutral-300"
                 : stale
                 ? "font-medium text-red-600"
-                : "text-neutral-400"
+                : "text-neutral-500"
             }`}
           >
             {app.daysSinceUpdate === 0 ? "today" : `${app.daysSinceUpdate}d`}

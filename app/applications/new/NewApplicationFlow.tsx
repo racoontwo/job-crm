@@ -130,7 +130,7 @@ export default function NewApplicationFlow({
               <span className="text-xs text-red-600">{detectedSource.note}</span>
             )}
             {detectedSource.status === "unknown" && (
-              <span className="text-xs text-neutral-400">
+              <span className="text-xs text-neutral-500">
                 Not a known job board — will try generic parsing.
               </span>
             )}
@@ -176,7 +176,7 @@ export default function NewApplicationFlow({
     <div className="mx-auto max-w-lg">
       <FlowSteps current={2} />
       <h1 className="mb-2 text-xl font-semibold">Review & confirm</h1>
-      <p className="mb-4 truncate text-xs text-neutral-400">{extracted.jobUrl}</p>
+      <p className="mb-4 truncate text-xs text-neutral-500">{extracted.jobUrl}</p>
       <div
         className={`mb-4 flex items-center gap-2 rounded-md px-3 py-2 text-xs ${
           extractionSucceeded ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
@@ -224,7 +224,7 @@ export default function NewApplicationFlow({
               <option key={c.id} value={c.name} />
             ))}
           </datalist>
-          <p className="mt-1 text-xs text-neutral-400">
+          <p className="mt-1 text-xs text-neutral-500">
             Type an existing name to reuse that company, or a new one to create it.
           </p>
         </div>
@@ -250,7 +250,7 @@ export default function NewApplicationFlow({
             />
           </div>
         </div>
-        <p className="-mt-2 text-xs text-neutral-400">
+        <p className="-mt-2 text-xs text-neutral-500">
           Only used the first time you add this company.
         </p>
 
@@ -297,13 +297,13 @@ export default function NewApplicationFlow({
             <option value={4}>★★★★☆</option>
             <option value={5}>★★★★★ — dream company</option>
           </select>
-          <p className="mt-1 text-xs text-neutral-400">
+          <p className="mt-1 text-xs text-neutral-500">
             Can&apos;t be read off the posting — set it yourself. Only used the first time you
             add this company.
           </p>
         </div>
 
-        <p className="text-xs text-neutral-400">
+        <p className="text-xs text-neutral-500">
           Saved as &ldquo;To apply&rdquo; &mdash; you&apos;ll mark it applied after writing the cover
           letter, which records the applied date.
         </p>

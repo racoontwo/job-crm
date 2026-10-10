@@ -96,7 +96,7 @@ export default async function ApplicationDetailPage({
         </div>
 
         {!app.coverLetter && (
-          <p className="mb-4 text-sm text-neutral-400">
+          <p className="mb-4 text-sm text-neutral-500">
             {generating
               ? "Writing your draft — it lands here when it's ready. You can leave this page."
               : "No cover letter yet — generate a draft, then edit it below before saving."}
@@ -115,7 +115,7 @@ export default async function ApplicationDetailPage({
             className="w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
           />
           <div className="flex items-center justify-between gap-4">
-            <p className="text-xs text-neutral-400">
+            <p className="text-xs text-neutral-500">
               Edits you save here also shape future drafts.
             </p>
             <button
@@ -173,7 +173,7 @@ export default async function ApplicationDetailPage({
               <span className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full bg-neutral-900" />
               <div className="flex items-baseline gap-2">
                 <span className="font-medium">{e.status}</span>
-                <span className="text-xs text-neutral-400">{e.eventDate}</span>
+                <span className="text-xs text-neutral-500">{e.eventDate}</span>
               </div>
               {e.note && <p className="text-sm text-neutral-600">{e.note}</p>}
             </li>
@@ -228,7 +228,7 @@ export default async function ApplicationDetailPage({
         </h2>
         <ul className="mb-6 space-y-2">
           {app.followUps.length === 0 && (
-            <p className="text-sm text-neutral-400">No follow-ups set.</p>
+            <p className="text-sm text-neutral-500">No follow-ups set.</p>
           )}
           {app.followUps.map((f) => (
             <li key={f.id} className="flex items-center gap-3 text-sm">
@@ -246,7 +246,7 @@ export default async function ApplicationDetailPage({
                   aria-label="Toggle done"
                 />
               </form>
-              <span className={f.done ? "text-neutral-400 line-through" : ""}>
+              <span className={f.done ? "text-neutral-500 line-through" : ""}>
                 {f.dueDate} — {f.note || "Follow up"}
               </span>
             </li>

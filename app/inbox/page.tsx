@@ -87,7 +87,7 @@ export default async function InboxPage() {
       </form>
 
       {groups.length === 0 ? (
-        <p className="text-sm text-neutral-400">
+        <p className="text-sm text-neutral-500">
           Nothing waiting. Share a job posting from your phone to see it here.
         </p>
       ) : (
@@ -100,7 +100,7 @@ export default async function InboxPage() {
                   <p className="truncate text-sm font-medium">
                     {title ?? inferSourceLabel(hostnameOf(link.url))}
                   </p>
-                  <p className="truncate text-xs text-neutral-400">
+                  <p className="truncate text-xs text-neutral-500">
                     {formatReceived(link.receivedAt)}
                     {duplicateIds.length > 0 && ` · shared ${duplicateIds.length + 1}×`} ·{" "}
                     {cleanJobUrl(link.url)}

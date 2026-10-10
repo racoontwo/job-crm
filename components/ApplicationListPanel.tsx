@@ -9,7 +9,7 @@ export default async function ApplicationListPanel() {
   const apps = await getDashboardData();
 
   if (apps.length === 0) {
-    return <p className="p-4 text-sm text-neutral-400">No applications yet.</p>;
+    return <p className="p-4 text-sm text-neutral-500">No applications yet.</p>;
   }
 
   const toApply = apps.filter((a) => a.currentStatus === "To apply");
@@ -30,7 +30,7 @@ export default async function ApplicationListPanel() {
 function ListSection({ title, apps }: { title: string; apps: DashboardApp[] }) {
   return (
     <div className="p-3">
-      <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+      <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
         {title}
       </h2>
       <div className="space-y-1">

@@ -53,7 +53,7 @@ export default function CoverLetterDrafts({
 
   return (
     <div className="mt-6">
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
         Drafts ({drafts.length})
       </h3>
       <ul className="divide-y divide-neutral-100 rounded-md border border-neutral-200">
@@ -68,7 +68,7 @@ export default function CoverLetterDrafts({
                   {draft.status}
                 </span>
                 <span className="text-neutral-600">{draft.model ?? draft.provider}</span>
-                <span className="text-xs text-neutral-400">
+                <span className="text-xs text-neutral-500">
                   {formatTime(draft.createdAt)}
                   {duration(draft) && ` · ${duration(draft)}`}
                   {draft.exampleCount !== null && ` · ${draft.exampleCount} example letters`}
