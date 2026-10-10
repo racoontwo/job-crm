@@ -3,8 +3,8 @@
 //
 // Both are stateless — neither reads this app's database or filesystem on
 // its own. Everything either "knows" is assembled here into one prompt: the
-// target job (from the DB), the user's background and rules (the profile/
-// files, lib/profileStore.ts), and past letters they approved (the
+// target job (from the DB), the user's background and rules (the files in
+// profile/, lib/profileStore.ts), and past letters they approved (the
 // few-shot memory, lib/db/coverLetters.ts). The pipeline that runs this per
 // draft lives in lib/coverLetterPipeline.ts.
 //
@@ -18,12 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { GoogleGenAI } from "@google/genai";
 import type { CoverLetterContext, CoverLetterExample } from "@/lib/db/coverLetters";
-import {
-  getExampleDocuments,
-  getNoteDocuments,
-  getResume,
-  getWritingStyle,
-} from "@/lib/profileStore";
+import { readProfileSection, type ProfileDocument } from "@/lib/profileStore";
 
 const DEFAULT_MODEL = "gemini-2.5-flash";
 const MAX_FILE_EXAMPLES = 6;
@@ -31,62 +26,48 @@ const CLAUDE_CLI_TIMEOUT_MS = 120_000;
 
 export type Profile = { resume: string; writingStyle: string };
 
-// A file that's still all scaffolding would produce a letter built on
-// placeholders, so treat it as missing rather than generating from it.
-//
-// Checks the literal "FILL ME IN" marker first: the length-only check below
-// used to be the only signal, and it undercounted — a template's own
-// explanatory intro prose (not a comment, not a heading) is well over 200
-// chars by itself, so a completely unfilled resume.md/writing-style.md could
-// pass as "filled in" and get sent to the AI anyway. The model would then
-// correctly notice nothing real was there and write a long refusal instead
-// of a letter — which got saved as if it were one. Catching the marker here
-// stops that before any AI call happens.
-function isUnfilledTemplate(text: string): boolean {
-  if (text.includes("FILL ME IN")) return true;
-  return text.replace(/<!--[\s\S]*?-->/g, "").replace(/^#.*$/gm, "").trim().length < 200;
-}
+// Without rules of their own, letters still need some.
+const DEFAULT_WRITING_RULES = `- Write in the language of the job posting.
+- Keep it under 300 words, in 3–4 short paragraphs.
+- Plain, direct, confident tone; no clichés or filler.`;
 
+// Reads the profile/ folders (lib/profileStore.ts). Background is required;
+// writing rules are optional. Unfilled templates and unreadable files are
+// already left out by readProfileSection.
 export async function readProfile(): Promise<
   { ok: true; profile: Profile } | { ok: false; problems: string[] }
 > {
-  const [resume, writingStyle] = await Promise.all([getResume(), getWritingStyle()]);
-  const fields = [
-    { text: resume, label: "Your resume" },
-    { text: writingStyle, label: "Your writing style" },
-  ];
-
-  const problems: string[] = [];
-  for (const { text, label } of fields) {
-    if (!text.trim()) {
-      problems.push(`${label} is empty — add it on the Settings page (or import your profile/ files there).`);
-    } else if (isUnfilledTemplate(text)) {
-      problems.push(`${label} is still an empty template — fill it in on the Settings page first.`);
-    }
+  const [about, style] = await Promise.all([readProfileSection("about"), readProfileSection("style")]);
+  if (about.length === 0) {
+    return {
+      ok: false,
+      problems: [
+        "There's nothing about you to write from yet — drop your CV (or other background) into \"About you\" on the Settings page.",
+      ],
+    };
   }
-
-  if (problems.length > 0) return { ok: false, problems };
-  const notes = await readNotes();
-  return { ok: true, profile: { resume: resume + notes, writingStyle } };
+  return {
+    ok: true,
+    profile: {
+      resume: renderDocuments(about),
+      writingStyle: style.length > 0 ? renderDocuments(style) : DEFAULT_WRITING_RULES,
+    },
+  };
 }
 
-// Optional supplementary background (note documents), combined into the
-// resume's background section. Zero notes is fine.
-async function readNotes(): Promise<string> {
-  const notes = await getNoteDocuments();
-  if (notes.length === 0) return "";
-
-  const sections = notes.map(
-    (note) => `### ${note.name.replace(/\.md$/, "")}\n\n${note.content.trim()}`
-  );
-  return `\n\n## Additional notes\n\n${sections.join("\n\n")}`;
+// One heading per file, so the AI can tell a CV from a note.
+function renderDocuments(docs: ProfileDocument[]): string {
+  if (docs.length === 1) return docs[0].content.trim();
+  return docs
+    .map((d) => `### ${d.name}\n\n${d.content.trim()}`)
+    .join("\n\n");
 }
 
 // Optional past cover letters uploaded on the Settings page, combined with
 // the letters saved on applications (lib/db/coverLetters.ts). The whole
 // document is the letter as-is; no required metadata.
 export async function readProfileExamples(): Promise<CoverLetterExample[]> {
-  const docs = await getExampleDocuments();
+  const docs = await readProfileSection("examples");
   return docs
     .slice(0, MAX_FILE_EXAMPLES)
     .map((doc) => doc.content.trim())

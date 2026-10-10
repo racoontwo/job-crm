@@ -137,35 +137,30 @@ you use it, with no training step.
 
 ### Your profile
 
-The profile is plain files in **`profile/`** on your laptop — gitignored, so
-it's never in this (public) repo, and deliberately not in the database (Atlas
-or SQLite). Edit them in your editor, or on the **Settings** page
-(`/settings`), which reads and writes the same files: textareas for the resume
-and writing style, upload/delete for notes and example letters.
+Your source material is files: drop them onto the **Settings** page
+(`/settings`) — or click to pick them — and they're saved in **`profile/`** on
+your laptop. That folder is gitignored, so it's never in this (public) repo, and
+deliberately not in the database. You can also copy files into the folders
+yourself. PDF, Word (`.docx`), `.md` and `.txt` are accepted, up to 10 MB each;
+text is extracted every time a letter is generated, so replacing a file is all
+it takes to update it.
 
-It holds two required documents:
+- **`profile/about/`** *(required)* — your CV, LinkedIn profile (More → Save to
+  PDF), notes, anything about you. Every file is used. The generator may use
+  *only* facts found here — it's instructed never to invent employers, dates or
+  metrics — so anything missing won't show up in a letter.
+- **`profile/style/`** *(optional)* — the hard rules: language, tone, length,
+  structure, banned phrases, signature. These override anything the model picks
+  up from past examples, so this is where you correct a letter that came out
+  wrong. Without it, letters are short, plain and in the posting's language.
+- **`profile/examples/`** *(optional)* — past cover letters, one per file. Combined
+  with the letters saved in this app (see "It learns as you go" above). Up to 6
+  are used, in alphabetical order — prefix names (`01-`, `02-` …) to choose.
 
-- **`profile/resume.md`** — your background. Headings: Basics, Summary, Skills,
-  Experience, Education, Languages, Certifications, Stories worth reusing,
-  Constraints. The generator may use *only* facts that appear here — it's
-  instructed never to invent employers, dates, or metrics — so anything missing
-  won't show up in a letter.
-- **`profile/writing-style.md`** — the hard rules: language, tone, length,
-  structure, banned phrases, signature. These override anything the model would
-  otherwise pick up from past examples, so this is where you correct a letter
-  that came out wrong.
-- **`profile/notes/`** *(optional)* — any number of `.md` files with extra
-  background the generator should know about (side projects, deeper stories,
-  domain-specific context) without cluttering `resume.md`. Every file in this
-  folder is read and appended to the resume as additional background; add,
-  edit, or remove files anytime. Missing this folder entirely is fine — it's
-  not required like the two files above.
-- **`profile/examples/`** *(optional)* — past cover letters you've written
-  outside this app, one per file (`.md` or `.txt`), whole file content is the
-  letter as-is. These are always combined with the app's own database-driven
-  examples (see "It learns as you go" above) as extra few-shot material. Up to
-  6 files are used, read in alphabetical order — name-prefix them (`01-`, `02-`
-  …) if you want to control which ones are picked when you have more than 6.
+Settings shows how many words were read from each file. A scanned PDF has no
+text layer and reads as nothing, and the starter templates (`about/resume.md`,
+`style/writing-style.md`) are skipped while they still contain "FILL ME IN" —
+fill them in, or delete them once your own files are in.
 
 ## Data model
 

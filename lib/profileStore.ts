@@ -1,93 +1,128 @@
-// What the cover-letter generator knows about you — resume, writing rules,
-// extra notes, past letters — as files in profile/ on this laptop
-// (gitignored). Edit them in your editor or on the Settings page; both read
-// and write the same files. Deliberately not in the database.
+// What the cover-letter generator knows about you, as files in profile/ on
+// this laptop (gitignored) — see lib/profilePaths.ts for the folders. Files
+// are dropped in on the Settings page or copied in by hand, in any of
+// PROFILE_EXTENSIONS' formats; their text is extracted when read, so replacing
+// a file is all it takes to update it. Deliberately not in the database.
 //
 // Free of next/* imports so it's usable anywhere (the generator, scripts).
 
 import { readFile, writeFile, readdir, unlink, mkdir, stat } from "node:fs/promises";
 import path from "node:path";
-import { PROFILE_DIR, NOTES_DIR, EXAMPLES_DIR, EXAMPLE_EXTENSIONS } from "@/lib/profilePaths";
+import { documentText, looksLike } from "@/lib/documentText";
+import {
+  MAX_PROFILE_FILE_BYTES,
+  PROFILE_EXTENSIONS,
+  PROFILE_SECTIONS,
+  type ProfileSection,
+} from "@/lib/profilePaths";
 
-export type ProfileFileInfo = { filename: string; size: number };
 export type ProfileDocument = { name: string; content: string };
 
-const RESUME_PATH = path.join(PROFILE_DIR, "resume.md");
-const WRITING_STYLE_PATH = path.join(PROFILE_DIR, "writing-style.md");
+export type ProfileFileInfo = {
+  filename: string;
+  size: number;
+  words: number; // of extracted text; 0 means nothing readable (e.g. a scanned PDF)
+  template: boolean; // still the "FILL ME IN" scaffolding
+  error?: string; // couldn't be read at all
+};
 
-async function readFileOrEmpty(filePath: string): Promise<string> {
+// A file that's still scaffolding would produce a letter built on
+// placeholders, so it's skipped rather than sent to the AI. The literal
+// marker is checked first because a template's own intro prose is long
+// enough to pass the length check on its own.
+export function isUnfilledTemplate(text: string): boolean {
+  if (text.includes("FILL ME IN")) return true;
+  return text.replace(/<!--[\s\S]*?-->/g, "").replace(/^#.*$/gm, "").trim().length < 200;
+}
+
+function isTemplateFile(name: string, text: string): boolean {
+  // Only text files can be templates; a dropped-in CV that happens to be
+  // short is still real material.
+  return [".md", ".txt"].includes(path.extname(name).toLowerCase()) && isUnfilledTemplate(text);
+}
+
+async function fileNames(section: ProfileSection): Promise<string[]> {
   try {
-    return await readFile(filePath, "utf8");
+    return (await readdir(PROFILE_SECTIONS[section].dir))
+      .filter((f) => !f.startsWith(".") && PROFILE_EXTENSIONS.includes(path.extname(f).toLowerCase()))
+      .sort();
   } catch {
-    return "";
+    return []; // folder doesn't exist yet
   }
 }
 
-async function writeInDir(dir: string, filename: string, content: string) {
-  await mkdir(dir, { recursive: true });
-  await writeFile(path.join(dir, filename), content, "utf8");
-}
-
-async function listNames(dir: string, extensions: string[]): Promise<string[]> {
-  try {
-    return (await readdir(dir)).filter((f) => extensions.includes(path.extname(f))).sort();
-  } catch {
-    return []; // folder doesn't exist yet — it's optional
-  }
-}
-
-async function listInfo(dir: string, extensions: string[]): Promise<ProfileFileInfo[]> {
-  const names = await listNames(dir, extensions);
-  return Promise.all(
-    names.map(async (filename) => ({ filename, size: (await stat(path.join(dir, filename))).size }))
-  );
-}
-
-async function readAll(dir: string, extensions: string[]): Promise<ProfileDocument[]> {
-  const names = await listNames(dir, extensions);
-  return Promise.all(
-    names.map(async (name) => ({ name, content: await readFile(path.join(dir, name), "utf8") }))
-  );
-}
-
-// Only a bare filename with an expected extension is accepted, so an uploaded
+// Only a bare filename with an allowed extension is accepted, so an uploaded
 // or deleted name can never escape its folder via "../".
-function safeFilename(filename: string, extensions: string[]): string {
+function safeFilename(filename: string): string {
   const base = path.basename(filename);
-  if (!base || base !== filename || base === "." || base === "..") {
+  if (!base || base !== filename || base.startsWith(".")) {
     throw new Error(`Invalid filename: "${filename}".`);
   }
-  if (!extensions.includes(path.extname(base))) {
-    throw new Error(`"${filename}" must be one of: ${extensions.join(", ")}.`);
+  if (!PROFILE_EXTENSIONS.includes(path.extname(base).toLowerCase())) {
+    throw new Error(`"${filename}" isn't supported — use ${PROFILE_EXTENSIONS.join(", ")}.`);
   }
   return base;
+}
+
+function wordCount(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
 }
 
 // ---------------------------------------------------------------------------
 // Settings page
 // ---------------------------------------------------------------------------
 
-export const getResume = () => readFileOrEmpty(RESUME_PATH);
-export const saveResume = (content: string) => writeInDir(PROFILE_DIR, "resume.md", content);
-export const getWritingStyle = () => readFileOrEmpty(WRITING_STYLE_PATH);
-export const saveWritingStyle = (content: string) =>
-  writeInDir(PROFILE_DIR, "writing-style.md", content);
+export async function listProfileFiles(section: ProfileSection): Promise<ProfileFileInfo[]> {
+  const dir = PROFILE_SECTIONS[section].dir;
+  return Promise.all(
+    (await fileNames(section)).map(async (filename) => {
+      const filePath = path.join(dir, filename);
+      const { size } = await stat(filePath);
+      try {
+        const text = await documentText(filename, await readFile(filePath));
+        return { filename, size, words: wordCount(text), template: isTemplateFile(filename, text) };
+      } catch {
+        return { filename, size, words: 0, template: false, error: "Couldn't read this file." };
+      }
+    })
+  );
+}
 
-export const listNotes = () => listInfo(NOTES_DIR, [".md"]);
-export const saveNote = (filename: string, content: string) =>
-  writeInDir(NOTES_DIR, safeFilename(filename, [".md"]), content);
-export const deleteNote = (filename: string) =>
-  unlink(path.join(NOTES_DIR, safeFilename(filename, [".md"]))).catch(() => {});
+export async function saveProfileFile(section: ProfileSection, filename: string, bytes: Buffer) {
+  const name = safeFilename(filename);
+  if (bytes.length === 0) throw new Error(`"${name}" is empty.`);
+  if (bytes.length > MAX_PROFILE_FILE_BYTES) {
+    throw new Error(`"${name}" is over ${MAX_PROFILE_FILE_BYTES / 1024 / 1024} MB.`);
+  }
+  if (!looksLike(name, bytes)) {
+    throw new Error(`"${name}" doesn't look like a ${path.extname(name)} file.`);
+  }
+  const dir = PROFILE_SECTIONS[section].dir;
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, name), bytes);
+}
 
-export const listExamples = () => listInfo(EXAMPLES_DIR, EXAMPLE_EXTENSIONS);
-export const saveExample = (filename: string, content: string) =>
-  writeInDir(EXAMPLES_DIR, safeFilename(filename, EXAMPLE_EXTENSIONS), content);
-export const deleteExample = (filename: string) =>
-  unlink(path.join(EXAMPLES_DIR, safeFilename(filename, EXAMPLE_EXTENSIONS))).catch(() => {});
+export async function deleteProfileFile(section: ProfileSection, filename: string) {
+  await unlink(path.join(PROFILE_SECTIONS[section].dir, safeFilename(filename))).catch(() => {});
+}
 
 // ---------------------------------------------------------------------------
 // Cover-letter generator
 // ---------------------------------------------------------------------------
 
-export const getNoteDocuments = () => readAll(NOTES_DIR, [".md"]);
-export const getExampleDocuments = () => readAll(EXAMPLES_DIR, EXAMPLE_EXTENSIONS);
+// The extracted text of every usable file in a section: unreadable, empty
+// and unfilled-template files are left out.
+export async function readProfileSection(section: ProfileSection): Promise<ProfileDocument[]> {
+  const dir = PROFILE_SECTIONS[section].dir;
+  const docs = await Promise.all(
+    (await fileNames(section)).map(async (name) => {
+      try {
+        const content = await documentText(name, await readFile(path.join(dir, name)));
+        return { name, content };
+      } catch {
+        return { name, content: "" };
+      }
+    })
+  );
+  return docs.filter((d) => d.content.trim() && !isTemplateFile(d.name, d.content));
+}

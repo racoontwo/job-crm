@@ -19,18 +19,8 @@ import {
   type CoverLetterProvider,
 } from "@/lib/db/coverLetterDrafts";
 import { runDraft } from "@/lib/coverLetterPipeline";
-import {
-  getResume,
-  saveResume,
-  getWritingStyle,
-  saveWritingStyle,
-  listNotes,
-  saveNote,
-  deleteNote,
-  listExamples,
-  saveExample,
-  deleteExample,
-} from "@/lib/profileStore";
+import { deleteProfileFile, listProfileFiles, saveProfileFile } from "@/lib/profileStore";
+import { isProfileSection } from "@/lib/profilePaths";
 import {
   companiesCollection,
   applicationsCollection,
@@ -525,58 +515,41 @@ export async function deleteApplication(applicationId: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Settings — viewing/editing/uploading/deleting the profile/ files the
-// cover-letter generator reads (see lib/coverLetterGenerator.ts, lib/profileStore.ts).
+// Settings — the files in profile/ the cover-letter generator reads (see
+// lib/coverLetterGenerator.ts, lib/profileStore.ts).
 
 export async function getProfileSettings() {
-  const [resume, writingStyle, notes, examples] = await Promise.all([
-    getResume(),
-    getWritingStyle(),
-    listNotes(),
-    listExamples(),
+  const [about, style, examples] = await Promise.all([
+    listProfileFiles("about"),
+    listProfileFiles("style"),
+    listProfileFiles("examples"),
   ]);
-  return { resume, writingStyle, notes, examples };
+  return { about, style, examples };
 }
 
-export async function saveResumeAction(formData: FormData) {
-  await saveResume((formData.get("content") as string) ?? "");
-  revalidatePath("/settings");
-}
-
-export async function saveWritingStyleAction(formData: FormData) {
-  await saveWritingStyle((formData.get("content") as string) ?? "");
-  revalidatePath("/settings");
-}
-
-async function saveUploadedFiles(
-  formData: FormData,
-  save: (filename: string, content: string) => Promise<void>
-) {
-  const files = formData.getAll("files");
-  for (const file of files) {
-    if (!(file instanceof File) || file.size === 0) continue;
-    await save(file.name, await file.text());
+// One file per call (the drop zone sends them one at a time), so the body
+// limit in next.config.ts applies per file. Returns the problem instead of
+// throwing, for the drop zone to show next to the file.
+export async function uploadProfileFileAction(
+  formData: FormData
+): Promise<{ error?: string }> {
+  const section = formData.get("section");
+  const file = formData.get("file");
+  if (!isProfileSection(section) || !(file instanceof File)) return { error: "Nothing to upload." };
+  try {
+    await saveProfileFile(section, file.name, Buffer.from(await file.arrayBuffer()));
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
   }
-}
-
-export async function uploadNotesAction(formData: FormData) {
-  await saveUploadedFiles(formData, saveNote);
   revalidatePath("/settings");
+  return {};
 }
 
-export async function deleteNoteAction(formData: FormData) {
-  const filename = formData.get("filename") as string;
-  if (filename) await deleteNote(filename);
-  revalidatePath("/settings");
-}
-
-export async function uploadExamplesAction(formData: FormData) {
-  await saveUploadedFiles(formData, saveExample);
-  revalidatePath("/settings");
-}
-
-export async function deleteExampleAction(formData: FormData) {
-  const filename = formData.get("filename") as string;
-  if (filename) await deleteExample(filename);
+export async function deleteProfileFileAction(formData: FormData) {
+  const section = formData.get("section");
+  const filename = formData.get("filename");
+  if (isProfileSection(section) && typeof filename === "string" && filename) {
+    await deleteProfileFile(section, filename);
+  }
   revalidatePath("/settings");
 }
