@@ -120,6 +120,26 @@ function isLoginWall(finalUrl: string): boolean {
   return path.startsWith("/uas/login") || path.startsWith("/authwall") || path.startsWith("/login");
 }
 
+// What can be read off the link itself, for when the page can't be fetched.
+// Upwork job links carry the title as a slug ("Looking-for-...-translator_~0221..."),
+// with search-highlight markup ("span-class-highlight-") baked in. Upwork
+// clients are anonymous, so there's no company name to find.
+function guessFromUrl(url: URL): { companyName: string; roleTitle: string } {
+  const host = url.hostname.replace(/^www\./, "");
+  if (host === "upwork.com" || host.endsWith(".upwork.com")) {
+    const slug = url.pathname.match(/\/jobs\/(.+?)_~\w+/)?.[1];
+    const roleTitle = slug
+      ? decodeURIComponent(slug)
+          .replace(/span-class-highlight-/gi, "")
+          .replace(/-span(?=-|$)/gi, "")
+          .replace(/-+/g, " ")
+          .trim()
+      : "";
+    return { companyName: "Upwork client", roleTitle };
+  }
+  return { companyName: "", roleTitle: "" };
+}
+
 export type ExtractedJobPosting = {
   companyName: string;
   companyWebsite: string;
@@ -245,11 +265,13 @@ export async function extractJobPostingFromUrl(rawUrl: string): Promise<Extracte
 
   parsed = new URL(cleanJobUrl(parsed.toString()));
   const source = inferSourceLabel(parsed.hostname);
+  // Returned with every error below, so filling the form in by hand starts
+  // from the cleaned link and whatever the link itself gives away.
+  const fallback = { ...empty, ...guessFromUrl(parsed), source, jobUrl: parsed.toString() };
   const knownSource = findJobSource(parsed.hostname);
   if (knownSource?.status === "blocked") {
     return {
-      ...empty,
-      source,
+      ...fallback,
       error: knownSource.note ?? `${source} blocks automated requests. You can still fill this in by hand.`,
     };
   }
@@ -259,21 +281,19 @@ export async function extractJobPostingFromUrl(rawUrl: string): Promise<Extracte
     const res = await httpsGetFollowingRedirects(parsed.toString());
     if (isLoginWall(res.finalUrl)) {
       return {
-        ...empty,
-        source,
+        ...fallback,
         error: "That link requires signing in to view. Try copying the link from the job's own page instead of a search-results page, or fill this in by hand.",
       };
     }
     if (res.status < 200 || res.status >= 300) {
       return {
-        ...empty,
-        source,
+        ...fallback,
         error: `Couldn't fetch that page (HTTP ${res.status}). You can still fill this in by hand.`,
       };
     }
     html = res.body;
   } catch {
-    return { ...empty, source, error: "Couldn't reach that URL. You can still fill this in by hand." };
+    return { ...fallback, error: "Couldn't reach that URL. You can still fill this in by hand." };
   }
 
   const jsonLdObjects = extractJsonLdObjects(html);

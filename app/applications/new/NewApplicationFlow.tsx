@@ -51,19 +51,43 @@ export default function NewApplicationFlow({
 }) {
   const [url, setUrl] = useState(initialExtracted?.jobUrl ?? savedLink?.url ?? "");
   const [extracted, setExtracted] = useState<ExtractedJobPosting | null>(initialExtracted);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  // A failed fetch still carries the cleaned link and guesses from it, which
+  // "Fill in by hand" starts the form from.
+  const [failed, setFailed] = useState<ExtractedJobPosting | null>(null);
   const [isPending, startTransition] = useTransition();
   const detectedSource = useDetectedSource(url);
 
   function handleExtract() {
-    setFetchError(null);
+    setFailed(null);
     startTransition(async () => {
       const result = await extractJobPosting(url);
       if (result.error) {
-        setFetchError(result.error);
+        setFailed(result);
         return;
       }
       setExtracted(result);
+    });
+  }
+
+  function fillInByHand() {
+    const base = failed ?? {
+      companyName: "",
+      companyWebsite: "",
+      industry: "",
+      roleTitle: "",
+      roleDescription: "",
+      source: "",
+      jobUrl: url,
+      interestLevel: 3,
+    };
+    // Text shared along with the link from the phone is usually the title.
+    const sharedTitle = savedLink?.sharedText?.trim();
+    setExtracted({
+      ...base,
+      roleTitle: base.roleTitle || (sharedTitle && sharedTitle.length <= 120 ? sharedTitle : ""),
+      error: undefined,
+      warning:
+        "Couldn't read the page, so fill in what's missing. Copy the job description from the posting into Role details — the cover letter is written from it.",
     });
   }
 
@@ -102,7 +126,7 @@ export default function NewApplicationFlow({
             >
               Detected: {detectedSource.label}
             </span>
-            {detectedSource.status === "blocked" && (
+            {detectedSource.status === "blocked" && !failed && (
               <span className="text-xs text-red-600">{detectedSource.note}</span>
             )}
             {detectedSource.status === "unknown" && (
@@ -112,15 +136,30 @@ export default function NewApplicationFlow({
             )}
           </div>
         )}
-        {fetchError && <p className="mt-2 text-sm text-red-600">{fetchError}</p>}
-        <button
-          type="button"
-          disabled={!url || isPending}
-          onClick={handleExtract}
-          className="mt-4 w-full rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-50"
-        >
-          {isPending ? "Reading posting..." : "Fetch details"}
-        </button>
+        {failed?.error && <p className="mt-2 text-sm text-red-600">{failed.error}</p>}
+        <div className="mt-4 flex gap-3">
+          <button
+            type="button"
+            disabled={!url || isPending}
+            onClick={handleExtract}
+            className={`w-full rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50 ${
+              failed
+                ? "border border-neutral-300 hover:bg-neutral-50"
+                : "bg-neutral-900 text-white hover:bg-neutral-700"
+            }`}
+          >
+            {isPending ? "Reading posting..." : failed ? "Try again" : "Fetch details"}
+          </button>
+          {failed && (
+            <button
+              type="button"
+              onClick={fillInByHand}
+              className="w-full rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700"
+            >
+              Fill in by hand
+            </button>
+          )}
+        </div>
       </div>
     );
   }

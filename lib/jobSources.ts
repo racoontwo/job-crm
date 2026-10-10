@@ -20,6 +20,13 @@ export const JOB_SOURCES: JobSource[] = [
     note: "Glassdoor blocks automated requests (HTTP 403) — fill this one in by hand.",
     lastVerified: "2026-09-27",
   },
+  {
+    domain: "upwork.com",
+    label: "Upwork",
+    status: "blocked",
+    note: "Upwork blocks automated requests (HTTP 403) — the title is read from the link; paste the description in by hand.",
+    lastVerified: "2026-10-10",
+  },
   { domain: "linkedin.com", label: "LinkedIn", status: "working", lastVerified: "2026-09-27" },
   { domain: "indeed.com", label: "Indeed", status: "unverified" },
   { domain: "greenhouse.io", label: "Greenhouse", status: "unverified" },

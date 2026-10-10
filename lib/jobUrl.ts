@@ -18,6 +18,7 @@ const TRACKING_PARAMS = new Set([
   "fbclid",
   "mc_cid",
   "mc_eid",
+  "referrer_url_path", // Upwork: the search page the job was opened from
 ]);
 
 // Cleans a job URL for storing and fetching: rewrites LinkedIn search-result
