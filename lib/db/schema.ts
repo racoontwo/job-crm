@@ -80,7 +80,7 @@ export const coverLetterDrafts = sqliteTable("cover_letter_drafts", {
     .notNull()
     .references(() => applications.id, { onDelete: "cascade" }),
   status: text("status").notNull().default("queued"),
-  provider: text("provider").notNull(), // claude | gemini
+  provider: text("provider").notNull(), // claude | gemini | chat (written in a Claude chat)
   model: text("model"),
   letter: text("letter"),
   error: text("error"),

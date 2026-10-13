@@ -48,8 +48,8 @@ with their parent application.
 ## Adding a job in three steps
 
 1. **Save the link.** Share a job posting from your phone ("Save to Job CRM" in the share menu), or paste it into **Inbox**. Nothing is fetched yet.
-2. **Fetch details.** In **Inbox**, hit *Fetch details →* on a link. The posting is scraped and you review company, role and description before saving. For sites that block the server (Glassdoor, Indeed, Upwork), open the link on the laptop and use the userscript instead; the inbox entry is cleared once an application with that URL is saved.
-3. **Cover letter.** Saving lands you on the application's cover-letter section to generate a draft.
+2. **Fetch details.** Ask Claude Desktop to *go through my inbox* (see [Working with Claude Desktop](#working-with-claude-desktop-mcp)) — it reads each posting in your browser and saves it. Or, in **Inbox**, hit *Fetch details →* on a link: the app scrapes the posting and you review it before saving. Sites that block the scraper (Glassdoor, Indeed, Upwork) need Claude, the userscript, or *Fill in by hand*. The inbox entry is cleared once an application with that URL is saved.
+3. **Cover letter.** Ask Claude for one, or use the application's **Generate** button (backup).
 
 ### Sharing from your Android phone
 
@@ -69,6 +69,41 @@ Phone shares go to a tiny hosted endpoint (`capture/`) that only stores the link
 Now share from Chrome, LinkedIn, Indeed, etc. and pick HTTP Shortcuts. Running the shortcut directly (not via Share) sends an empty body and returns 400 — that's expected. Anything without a link is rejected; a LinkedIn-style "Check out this job at Acme: https://…" is fine.
 
 Keep the token secret. Anyone with it can add links to your inbox (nothing more). To rotate it, change `CAPTURE_TOKEN` in Vercel and in the shortcut.
+
+## Working with Claude Desktop (MCP)
+
+The main way to process jobs: Claude reads each posting in **your own
+browser** — so Indeed, Upwork and Glassdoor's bot blocking doesn't matter —
+writes cover letters from files in a **Claude Project**, and keeps this
+tracker up to date through a local MCP server (`mcp/server.ts`).
+
+```
+phone share ─▶ inbox ─▶ Claude reads the posting ─▶ save_application ("To apply")
+                         Claude Project files ─▶ cover letter ─▶ save_cover_letter (draft)
+```
+
+Tools: `list_inbox`, `dismiss_inbox_links`, `list_applications`,
+`get_application`, `save_application`, `save_cover_letter`, `update_status`.
+The server runs over stdio, started by Claude Desktop via `mcp/run.sh` — it
+opens no network port — and uses the same database as the app (Atlas via
+`.env.local`, or SQLite).
+
+**One-time setup**
+
+1. **Register the server** in `~/Library/Application Support/Claude/claude_desktop_config.json`, then quit and reopen Claude Desktop:
+   ```json
+   { "mcpServers": { "job-crm": { "command": "/bin/sh", "args": ["/Users/<you>/projects/job-crm/mcp/run.sh"] } } }
+   ```
+2. **Create a Project** in Claude ("Job applications"). Upload your CV, LinkedIn PDF, writing-style rules and old cover letters to its files, and paste `mcp/claude-project-instructions.md` into its instructions.
+3. **Browser access** — with Claude in Chrome connected, Claude can open the links itself; without it, paste the posting's text into the chat.
+
+Then, in a chat in that project: *"go through my inbox"*, *"write a cover
+letter for the Volvo job"*, *"I applied to it today"*. Letters land in the
+application's draft history marked "Written in Claude chat".
+
+The app's own **Generate** button below stays as a backup; it reads
+`profile/` (Settings), not the Claude Project, so drop your CV there too if
+you want the backup to work.
 
 ## Cover letters
 

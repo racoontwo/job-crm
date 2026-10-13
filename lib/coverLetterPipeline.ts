@@ -18,7 +18,7 @@ function now() {
 
 export async function runDraft(draftId: string): Promise<void> {
   const draft = await getDraft(draftId);
-  if (!draft || draft.status !== "queued") return;
+  if (!draft || draft.status !== "queued" || draft.provider === "chat") return;
 
   await updateDraft(draftId, { status: "generating", startedAt: now() });
 

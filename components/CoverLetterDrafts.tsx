@@ -67,7 +67,7 @@ export default function CoverLetterDrafts({
                 >
                   {draft.status}
                 </span>
-                <span className="text-neutral-600">{draft.model ?? draft.provider}</span>
+                <span className="text-neutral-600">{draft.provider === "chat" ? `Written in Claude chat${draft.model ? ` (${draft.model})` : ""}` : draft.model ?? draft.provider}</span>
                 <span className="text-xs text-neutral-500">
                   {formatTime(draft.createdAt)}
                   {duration(draft) && ` · ${duration(draft)}`}

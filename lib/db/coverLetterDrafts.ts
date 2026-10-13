@@ -14,7 +14,11 @@ import {
   type CoverLetterDraftStatus,
 } from "@/lib/db/mongoCollections";
 
-export type CoverLetterProvider = "claude" | "gemini";
+// "claude" and "gemini" are run by the app's Generate button; "chat" is a
+// letter Claude wrote in a Claude Desktop chat and saved through the MCP
+// server (mcp/server.ts) — it arrives finished, never queued.
+export type CoverLetterProvider = "claude" | "gemini" | "chat";
+export type GeneratorProvider = Exclude<CoverLetterProvider, "chat">;
 
 export type CoverLetterDraft = {
   id: string;
@@ -78,7 +82,7 @@ function fromSqlite(r: typeof coverLetterDrafts.$inferSelect): CoverLetterDraft 
 
 export async function createDraft(
   applicationId: string,
-  provider: CoverLetterProvider
+  provider: GeneratorProvider
 ): Promise<string> {
   const createdAt = new Date().toISOString();
   const status = await getMongoStatus();
@@ -102,6 +106,48 @@ export async function createDraft(
   const [row] = await db
     .insert(coverLetterDrafts)
     .values({ applicationId: Number(applicationId), status: "queued", provider, createdAt })
+    .returning();
+  return String(row.id);
+}
+
+// A letter written elsewhere (a Claude chat), saved straight into the
+// history as ready.
+export async function saveWrittenDraft(
+  applicationId: string,
+  letter: string,
+  model: string
+): Promise<string> {
+  const now = new Date().toISOString();
+  const status = await getMongoStatus();
+  if (status.connected) {
+    const col = await coverLetterDraftsCollection();
+    const { insertedId } = await col.insertOne({
+      applicationId: new ObjectId(applicationId),
+      status: "ready",
+      provider: "chat",
+      model,
+      letter,
+      error: null,
+      prompt: null,
+      exampleCount: null,
+      createdAt: now,
+      startedAt: now,
+      finishedAt: now,
+    });
+    return insertedId.toString();
+  }
+  const [row] = await db
+    .insert(coverLetterDrafts)
+    .values({
+      applicationId: Number(applicationId),
+      status: "ready",
+      provider: "chat",
+      model,
+      letter,
+      createdAt: now,
+      startedAt: now,
+      finishedAt: now,
+    })
     .returning();
   return String(row.id);
 }

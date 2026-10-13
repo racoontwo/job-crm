@@ -64,7 +64,7 @@ export type CoverLetterDraftDoc = {
   _id?: ObjectId;
   applicationId: ObjectId;
   status: CoverLetterDraftStatus;
-  provider: "claude" | "gemini";
+  provider: "claude" | "gemini" | "chat";
   model: string | null;
   letter: string | null;
   error: string | null;
