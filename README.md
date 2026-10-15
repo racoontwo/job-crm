@@ -197,6 +197,23 @@ text layer and reads as nothing, and the starter templates (`about/resume.md`,
 `style/writing-style.md`) are skipped while they still contain "FILL ME IN" —
 fill them in, or delete them once your own files are in.
 
+## Keeping private data out of this public repo
+
+Your jobs, profile and credentials live only in `job-crm.db`, Atlas,
+`profile/` and `.env*.local` — all gitignored. After cloning, turn on the
+commit guard and commit under your GitHub noreply address:
+
+```sh
+git config core.hooksPath .githooks
+git config user.email "<id>+<login>@users.noreply.github.com"   # github.com/settings/emails
+```
+
+The guard (`.githooks/check-private.sh`) blocks those files plus credentials,
+email addresses, phone and personal ID numbers in staged changes and commit
+messages. Add your own terms (name, companies you apply to, hostnames) one per
+line to `.git/info/private-terms` — inside `.git/`, so the list itself is never
+pushed.
+
 ## Data model
 
 - **companies** — name, website, industry, notes, interest level (1-5 stars)
