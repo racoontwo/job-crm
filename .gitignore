@@ -48,6 +48,15 @@ atlas-credentials.env
 *.tsbuildinfo
 next-env.d.ts
 
-# database
+# database — your jobs. *.db-* also covers SQLite's -wal/-shm side files.
 *.db
-*.db-journal
+*.db-*
+*.sqlite
+*.sqlite3
+
+# Anything personal or data-bearing stays local: the repo is public.
+/logs
+*.bak
+*.backup
+/backups
+*.local

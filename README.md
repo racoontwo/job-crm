@@ -98,7 +98,7 @@ opens no network port — and uses the same database as the app (Atlas via
 3. **Browser access** — with Claude in Chrome connected, Claude can open the links itself; without it, paste the posting's text into the chat.
 
 Then, in a chat in that project: *"go through my inbox"*, *"write a cover
-letter for the Volvo job"*, *"I applied to it today"*. Letters land in the
+letter for the Acme job"*, *"I applied to it today"*. Letters land in the
 application's draft history marked "Written in Claude chat".
 
 The app's own **Generate** button below stays as a backup; it reads
