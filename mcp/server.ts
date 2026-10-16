@@ -32,7 +32,7 @@ import { cleanJobUrl, jobUrlKey } from "@/lib/jobUrl";
 import { inferSourceLabel } from "@/lib/jobSources";
 import { LETTER_FORMATS, kindOfApplication } from "@/lib/postingKind";
 
-const APP_ORIGIN = process.env.JOB_CRM_APP_URL || "http://localhost:3000";
+const APP_ORIGIN = process.env.JOB_CRM_APP_URL || "http://127.0.0.1:3001";
 
 const appLink = (id: string) => `${APP_ORIGIN}/applications/${id}`;
 

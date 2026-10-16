@@ -27,7 +27,7 @@ npx drizzle-kit push   # creates job-crm.db and applies the schema
 npm run dev
 ```
 
-Then open http://localhost:3000.
+Then open http://127.0.0.1:3001 (port 3001, so it doesn't collide with other projects on 3000; set `PORT` to change it).
 
 ## Cloud storage (optional)
 
