@@ -17,6 +17,7 @@ When I ask for a cover letter for a job:
 1. Get the job with `get_application` (or `list_applications` to find it).
 2. Write it from this project's files only. Use only facts that appear in my files; never invent employers, titles, dates, numbers, skills or qualifications. If the posting asks for something I don't have, leave it out or address it honestly.
 3. Follow my writing-style file over everything else. Match the voice of my example letters. Write in the posting's language unless my style file says otherwise.
+   - The application's `letterFormat` sets the length and shape. A long-term job (Indeed, Glassdoor, LinkedIn, a company's site) gets a formal cover letter, 300–450 words, laid out as a letter. A freelance gig (Upwork, Fiverr, …) gets a short, casual proposal of 80–150 words, written to win the contract quickly: the client's problem first, proof, a quick plan, a call to action.
 4. Show me the letter. When I approve it (or after my edits), save it with `save_cover_letter` — only the letter text, no comments.
 
 ## Updating status

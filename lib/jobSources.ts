@@ -10,6 +10,9 @@ export type JobSource = {
   status: JobSourceStatus;
   note?: string;
   lastVerified?: string; // ISO date, only present once actually checked
+  // Freelance marketplaces get a short proposal instead of a formal letter
+  // (lib/postingKind.ts).
+  kind?: "freelance";
 };
 
 export const JOB_SOURCES: JobSource[] = [
@@ -26,7 +29,11 @@ export const JOB_SOURCES: JobSource[] = [
     status: "blocked",
     note: "Upwork blocks the app (HTTP 403) — the title is read from the link. Use the userscript's import button in your browser, or paste the description in by hand.",
     lastVerified: "2026-10-10",
+    kind: "freelance",
   },
+  { domain: "fiverr.com", label: "Fiverr", status: "unverified", kind: "freelance" },
+  { domain: "freelancer.com", label: "Freelancer", status: "unverified", kind: "freelance" },
+  { domain: "peopleperhour.com", label: "PeoplePerHour", status: "unverified", kind: "freelance" },
   { domain: "linkedin.com", label: "LinkedIn", status: "working", lastVerified: "2026-09-27" },
   {
     domain: "indeed.com",

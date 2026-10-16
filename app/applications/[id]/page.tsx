@@ -12,6 +12,7 @@ import CoverLetterDrafts from "@/components/CoverLetterDrafts";
 import { listCoverLetterDrafts } from "@/lib/actions/actions";
 import { saveCoverLetter } from "@/lib/actions/actions";
 import FlowSteps from "@/components/FlowSteps";
+import { POSTING_KIND_LABELS, kindOfApplication } from "@/lib/postingKind";
 
 export default async function ApplicationDetailPage({
   params,
@@ -27,6 +28,7 @@ export default async function ApplicationDetailPage({
   if (!app) notFound();
   const drafts = await listCoverLetterDrafts(app.id);
   const generating = drafts.some((d) => d.status === "queued" || d.status === "generating");
+  const kind = kindOfApplication(app);
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -86,7 +88,10 @@ export default async function ApplicationDetailPage({
       >
         <div className="mb-4 flex items-center justify-between gap-4">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
-            Cover letter
+            Cover letter{" "}
+            <span className="font-normal normal-case tracking-normal">
+              · {POSTING_KIND_LABELS[kind].letter}
+            </span>
           </h2>
           <GenerateCoverLetterButton
             applicationId={app.id}

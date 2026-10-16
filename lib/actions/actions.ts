@@ -24,7 +24,10 @@ import { isProfileSection } from "@/lib/profilePaths";
 import { applicationsCollection, type FollowUpDoc } from "@/lib/db/mongoCollections";
 import { markSavedLinkDone } from "@/lib/actions/savedLinks";
 import * as data from "@/lib/db/applications";
-import { cleanJobUrl } from "@/lib/jobUrl";
+import { cleanJobUrl, jobUrlKey } from "@/lib/jobUrl";
+import { readPosting } from "@/lib/coverLetterGenerator";
+import { firstUrl, kindOfApplication, sourceForKind, type PostingKind } from "@/lib/postingKind";
+import { inferSourceLabel } from "@/lib/jobSources";
 
 const today = data.today;
 
@@ -147,6 +150,91 @@ export async function generateCoverLetter(
   after(() => runDraft(draftId));
 
   revalidatePath(`/applications/${applicationId}`);
+}
+
+// The main page's paste box: a posting (its text, or just a link to a page
+// the app can read) → saved as "To apply" → a letter queued straight away,
+// formal or a short proposal depending on the kind. Redirects to the
+// application, where the letter appears when it's done.
+export type PasteResult = { error?: string; existing?: { id: string; label: string } };
+
+// Below this much text besides the link, the paste is treated as just a link.
+const MIN_POSTING_CHARS = 200;
+
+export async function writeLetterFromPaste(
+  _prev: PasteResult,
+  formData: FormData
+): Promise<PasteResult> {
+  const text = ((formData.get("posting") as string) ?? "").trim();
+  const kindChoice = formData.get("kind") as PostingKind | "auto";
+  const provider: GeneratorProvider = formData.get("provider") === "gemini" ? "gemini" : "claude";
+  if (!text) return { error: "Paste a job posting first." };
+
+  const rawUrl = firstUrl(text);
+  const jobUrl = rawUrl ? cleanJobUrl(rawUrl) : null;
+  const textBesidesLink = rawUrl ? text.replace(rawUrl, "").trim() : text;
+
+  if (jobUrl) {
+    const key = jobUrlKey(jobUrl);
+    const existing = (await data.getDashboardData()).find((a) => a.jobUrl && jobUrlKey(a.jobUrl) === key);
+    if (existing) {
+      return {
+        error: "You've already saved this job.",
+        existing: { id: existing.id, label: `${existing.company.name} – ${existing.roleTitle}` },
+      };
+    }
+  }
+
+  let input: data.NewApplicationInput;
+  let detectedKind: PostingKind;
+  try {
+    if (textBesidesLink.length < MIN_POSTING_CHARS) {
+      if (!jobUrl) return { error: "That's too short to be a job posting — paste the whole posting." };
+      const posting = await extractJobPostingFromUrl(jobUrl);
+      if (posting.error || !posting.roleDescription.trim()) {
+        return {
+          error: `${posting.error ?? "Couldn't find the job description on that page."} Copy the posting's text from your browser and paste it here instead (keep the link in, so it's saved too).`,
+        };
+      }
+      detectedKind = kindOfApplication({ source: posting.source, jobUrl });
+      input = {
+        companyName: posting.companyName.trim() || "Unknown company",
+        website: posting.companyWebsite || null,
+        industry: posting.industry || null,
+        interestLevel: 3,
+        roleTitle: posting.roleTitle.trim() || "Untitled role",
+        roleDescription: posting.roleDescription,
+        source: posting.source || null,
+        jobUrl,
+      };
+    } else {
+      const facts = await readPosting(text, provider);
+      detectedKind = facts.kind;
+      input = {
+        companyName: facts.companyName ?? (facts.kind === "freelance" ? "Freelance client" : "Unknown company"),
+        website: null,
+        industry: null,
+        interestLevel: 3,
+        roleTitle: facts.roleTitle ?? "Untitled role",
+        roleDescription: textBesidesLink || text,
+        source: facts.platform ?? (jobUrl ? inferSourceLabel(new URL(jobUrl).hostname) : null),
+        jobUrl,
+      };
+    }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+
+  const kind = kindChoice === "job" || kindChoice === "freelance" ? kindChoice : detectedKind;
+  input.source = sourceForKind(kind, input.source);
+
+  const appId = await data.createApplication(input);
+  if (jobUrl) await markSavedLinkDone(appId, { savedLinkId: null, jobUrl });
+  const draftId = await createDraft(appId, provider);
+  after(() => runDraft(draftId));
+
+  revalidatePath("/");
+  redirect(`/applications/${appId}?step=cover-letter#cover-letter`);
 }
 
 export async function listCoverLetterDrafts(applicationId: string): Promise<CoverLetterDraft[]> {

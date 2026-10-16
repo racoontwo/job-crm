@@ -45,6 +45,29 @@ status events and follow-ups are embedded arrays on the application document
 rather than separate collections, since they're always read/written together
 with their parent application.
 
+## Paste a posting, get a letter
+
+The main page is a paste box. Paste a job posting — its whole text, or just the
+link if the site lets the app read it (LinkedIn does; Indeed, Glassdoor and
+Upwork don't, so copy the text from your browser) — and hit **Write cover
+letter**. The app reads the company and role from it (a quick Claude Haiku or
+Gemini call), saves it as "To apply" and writes the letter in the background;
+you land on the application, where the letter appears in a minute.
+
+The letter depends on the kind of posting, detected from the paste and
+switchable before you write:
+
+- **Job** (Indeed, Glassdoor, LinkedIn, a company's own site): a formal cover
+  letter laid out as a letter — greeting, 300–450 words, sign-off.
+- **Freelance gig** (Upwork, Fiverr, Freelancer, PeoplePerHour): a short,
+  casual proposal of 80–150 words written to land the contract quickly — the
+  client's problem first, proof, a quick plan, a call to action.
+
+The kind is kept in the application's source ("Upwork", or "Freelance" when
+the platform isn't known), so **Generate** and Claude Desktop write the same
+kind of letter later. The formats live in `lib/postingKind.ts`; your
+writing-style file still sets the voice.
+
 ## Adding a job in three steps
 
 1. **Save the link.** Share a job posting from your phone ("Save to Job CRM" in the share menu), or paste it into **Inbox**. Nothing is fetched yet.

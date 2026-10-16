@@ -19,6 +19,7 @@ import path from "node:path";
 import { GoogleGenAI } from "@google/genai";
 import type { CoverLetterContext, CoverLetterExample } from "@/lib/db/coverLetters";
 import { readProfileSection, type ProfileDocument } from "@/lib/profileStore";
+import { LETTER_FORMATS, kindOfApplication, type PostingKind } from "@/lib/postingKind";
 
 const DEFAULT_MODEL = "gemini-2.5-flash";
 const MAX_FILE_EXAMPLES = 6;
@@ -26,9 +27,9 @@ const CLAUDE_CLI_TIMEOUT_MS = 120_000;
 
 export type Profile = { resume: string; writingStyle: string };
 
-// Without rules of their own, letters still need some.
+// Without rules of their own, letters still need some. Length and layout
+// come from the posting's kind (LETTER_FORMATS), not from here.
 const DEFAULT_WRITING_RULES = `- Write in the language of the job posting.
-- Keep it under 300 words, in 3–4 short paragraphs.
 - Plain, direct, confident tone; no clichés or filler.`;
 
 // Reads the profile/ folders (lib/profileStore.ts). Background is required;
@@ -119,8 +120,9 @@ export function buildPrompt(
   ]
     .filter(Boolean)
     .join("\n");
+  const kind = kindOfApplication(context);
 
-  return `You are drafting a cover letter on behalf of the person described below. Write it in their voice, as if they wrote it themselves.
+  return `You are drafting a ${kind === "freelance" ? "proposal for a freelance gig" : "cover letter"} on behalf of the person described below. Write it in their voice, as if they wrote it themselves.
 
 Read the job posting carefully and pick out which of their actual skills and experience are most relevant to this specific role. Be specific and selective rather than listing everything.
 
@@ -128,11 +130,15 @@ HARD RULES — these override everything else, including any pattern you notice 
 
 ${profile.writingStyle}
 
+FORMAT — length, register and layout for this kind of posting. Follow it unless the rules above explicitly say otherwise for this kind of posting:
+
+${LETTER_FORMATS[kind]}
+
 THE PERSON'S BACKGROUND — you may only use facts that appear here. Do not invent employers, job titles, dates, metrics, technologies, or qualifications. If the posting asks for something their background doesn't cover, either leave it out or address it honestly; never fabricate it.
 
 ${profile.resume}
 
-PAST LETTERS THIS PERSON APPROVED — match their structure, rhythm, and voice. These reflect how they actually want letters written, since they edited and saved them.
+PAST LETTERS THIS PERSON APPROVED — match their voice and rhythm. These reflect how they actually want letters written, since they edited and saved them. Where an example is a different kind of letter (a formal letter vs. a short freelance proposal), take only the voice from it — length and layout come from FORMAT.
 
 ${renderExamples(examples)}
 
@@ -140,7 +146,7 @@ THE JOB TO WRITE FOR NOW:
 
 ${targetJob}
 
-Output only the cover letter itself — no preamble, no commentary, no subject line, no markdown formatting.`;
+Output only the ${kind === "freelance" ? "proposal" : "cover letter"} itself — no preamble, no commentary, no subject line, no markdown formatting.`;
 }
 
 export type ProviderResult = { text: string; model: string };
@@ -207,14 +213,14 @@ function resolveClaudeBinary(): string {
   return "claude"; // last resort: hope it's on this process's PATH
 }
 
-function runClaudeCli(prompt: string): Promise<string> {
+function runClaudeCli(prompt: string, extraArgs: string[] = []): Promise<string> {
   return new Promise((resolve, reject) => {
     const claudeBinary = resolveClaudeBinary();
     console.log(`[cover letter] running \`${claudeBinary} -p\` (prompt: ${prompt.length} chars)...`);
 
     const child = spawn(
       claudeBinary,
-      ["-p", "--output-format", "text"],
+      ["-p", "--output-format", "text", ...extraArgs],
       {
         cwd: os.tmpdir(),
         timeout: CLAUDE_CLI_TIMEOUT_MS,
@@ -291,4 +297,58 @@ export async function draftWithClaudeCli(prompt: string): Promise<ProviderResult
 
   // `-p` uses whatever model the CLI is configured with; it isn't reported back.
   return { text, model: "claude CLI (default model)" };
+}
+
+// ---------------------------------------------------------------------------
+// Reading a pasted posting (the paste box on the main page): the company,
+// role, platform and kind, so it can be saved as an application. The pasted
+// text itself is stored as the role description, unchanged.
+
+export type PostingFacts = {
+  companyName: string | null;
+  roleTitle: string | null;
+  platform: string | null;
+  kind: PostingKind;
+};
+
+function readPostingPrompt(text: string): string {
+  return `Below is a job posting someone copied from a website. Read it and answer with JSON only, no markdown fence, in exactly this shape:
+
+{"company": string or null, "role": string or null, "platform": string or null, "kind": "job" or "freelance"}
+
+- company: the hiring company's name as written in the posting. null if it isn't named (common on freelance marketplaces).
+- role: the job title, short, as written in the posting. If there is no title, a short title (max 8 words) describing the work, in the posting's language.
+- platform: the site it was posted on if it's evident (e.g. "Indeed", "Glassdoor", "LinkedIn", "Upwork", "Fiverr"), else null.
+- kind: "freelance" for a gig or contract on a freelance marketplace (Upwork, Fiverr, Freelancer, …), "job" for an employment position.
+
+THE POSTING:
+
+${text}`;
+}
+
+function parsePostingFacts(raw: string): PostingFacts {
+  const json = raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1);
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    throw new Error("Couldn't read the company and role from the posting. Try again.");
+  }
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 200) : null);
+  return {
+    companyName: str(parsed.company),
+    roleTitle: str(parsed.role),
+    platform: str(parsed.platform),
+    kind: parsed.kind === "freelance" ? "freelance" : "job",
+  };
+}
+
+export async function readPosting(text: string, provider: "claude" | "gemini"): Promise<PostingFacts> {
+  const prompt = readPostingPrompt(text);
+  // A small, fast model is plenty for picking out a name and a title.
+  const raw =
+    provider === "claude"
+      ? await runClaudeCli(prompt, ["--model", "haiku"])
+      : (await draftWithGemini(prompt)).text;
+  return parsePostingFacts(raw);
 }

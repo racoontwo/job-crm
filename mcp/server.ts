@@ -30,6 +30,7 @@ import { listDrafts, saveWrittenDraft } from "@/lib/db/coverLetterDrafts";
 import { setCoverLetter } from "@/lib/db/coverLetters";
 import { cleanJobUrl, jobUrlKey } from "@/lib/jobUrl";
 import { inferSourceLabel } from "@/lib/jobSources";
+import { LETTER_FORMATS, kindOfApplication } from "@/lib/postingKind";
 
 const APP_ORIGIN = process.env.JOB_CRM_APP_URL || "http://localhost:3000";
 
@@ -119,7 +120,7 @@ server.registerTool(
   {
     title: "Get application",
     description:
-      "Everything about one job: company, role description, saved cover letter, status history, follow-ups and cover letter drafts.",
+      "Everything about one job: company, role description, saved cover letter, status history, follow-ups and cover letter drafts. kind is \"job\" (formal cover letter) or \"freelance\" (short proposal), and letterFormat says how long and in what shape to write it.",
     inputSchema: { id: z.string().describe("Application id") },
     annotations: { readOnlyHint: true },
   },
@@ -127,9 +128,12 @@ server.registerTool(
     const app = await getApplication(id);
     if (!app) return fail(`No application with id ${id}.`);
     const drafts = await listDrafts(id);
+    const kind = kindOfApplication(app);
     return reply({
       ...app,
       link: appLink(id),
+      kind,
+      letterFormat: LETTER_FORMATS[kind],
       drafts: drafts.map((d) => ({
         id: d.id,
         status: d.status,
@@ -153,7 +157,10 @@ server.registerTool(
       roleDescription: z.string().trim().min(1).describe("The posting's description, requirements and conditions, as written"),
       jobUrl: z.string().url().optional().describe("The posting's URL (tracking parameters are removed)"),
       inboxLinkId: z.string().optional().describe("The list_inbox id this job came from, if any"),
-      source: z.string().optional().describe("Defaults to the job board, from the URL"),
+      source: z
+        .string()
+        .optional()
+        .describe('Defaults to the job board, from the URL. For a freelance gig without a URL, use the platform name (e.g. "Upwork") or "Freelance" — the source decides whether a formal letter or a short proposal is written.'),
       companyWebsite: z.string().url().optional(),
       industry: z.string().optional(),
       interestLevel: z.number().int().min(1).max(5).optional().describe("1–5; only ask if the user said. Default 3"),
