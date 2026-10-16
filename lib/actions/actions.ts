@@ -2,53 +2,34 @@
 
 import { ObjectId } from "mongodb";
 import { db } from "@/lib/db";
-import { companies, applications, statusEvents, followUps } from "@/lib/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { applications, followUps } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { extractJobPostingFromUrl, type ExtractedJobPosting } from "@/lib/jobPosting";
 import { getMongoStatus, type DatabaseStatus } from "@/lib/db/mongoStatus";
+import { after } from "next/server";
+import { setCoverLetter } from "@/lib/db/coverLetters";
 import {
-  getCoverLetterContext,
-  setCoverLetter,
-  getCoverLetterExamples,
-} from "@/lib/db/coverLetters";
-import {
-  readProfile,
-  draftCoverLetter,
-  draftCoverLetterViaClaudeCli,
-  readFileExamples,
-} from "@/lib/coverLetterGenerator";
-import {
-  getResume,
-  saveResume,
-  getWritingStyle,
-  saveWritingStyle,
-  listNotes,
-  saveNote,
-  deleteNote,
-  listExamples,
-  saveExample,
-  deleteExample,
-} from "@/lib/profileFiles";
-import {
-  companiesCollection,
-  applicationsCollection,
-  type ApplicationDoc,
-  type CompanyDoc,
-  type StatusEventDoc,
-  type FollowUpDoc,
-} from "@/lib/db/mongoCollections";
-import type {
-  ApplicationSummary,
-  DashboardApplication,
-  StatusEventSummary,
-  FollowUpSummary,
-} from "@/lib/db/types";
+  createDraft,
+  deleteDraftsForApplication,
+  getDraft,
+  listDrafts,
+  type CoverLetterDraft,
+  type GeneratorProvider,
+} from "@/lib/db/coverLetterDrafts";
+import { runDraft } from "@/lib/coverLetterPipeline";
+import { deleteProfileFile, listProfileFiles, saveProfileFile } from "@/lib/profileStore";
+import { isProfileSection } from "@/lib/profilePaths";
+import { applicationsCollection, type FollowUpDoc } from "@/lib/db/mongoCollections";
+import { markSavedLinkDone } from "@/lib/actions/savedLinks";
+import * as data from "@/lib/db/applications";
+import { cleanJobUrl, jobUrlKey } from "@/lib/jobUrl";
+import { readPosting } from "@/lib/coverLetterGenerator";
+import { firstUrl, kindOfApplication, sourceForKind, type PostingKind } from "@/lib/postingKind";
+import { inferSourceLabel } from "@/lib/jobSources";
 
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
+const today = data.today;
 
 export async function getDatabaseStatus(): Promise<DatabaseStatus> {
   return getMongoStatus();
@@ -59,289 +40,24 @@ export async function extractJobPosting(url: string): Promise<ExtractedJobPostin
 }
 
 // ---------------------------------------------------------------------------
-// SQLite (local, fallback) row shapes + mapping to the shared summary types
+// Reads (lib/db/applications.ts)
 // ---------------------------------------------------------------------------
 
-type SqliteApplicationRow = typeof applications.$inferSelect & {
-  company: typeof companies.$inferSelect;
-  statusEvents: (typeof statusEvents.$inferSelect)[];
-  followUps: (typeof followUps.$inferSelect)[];
-};
-
-function mapSqliteApp(a: SqliteApplicationRow): ApplicationSummary {
-  return {
-    id: String(a.id),
-    roleTitle: a.roleTitle,
-    roleDescription: a.roleDescription,
-    coverLetter: a.coverLetter,
-    source: a.source,
-    appliedDate: a.appliedDate,
-    currentStatus: a.currentStatus,
-    jobUrl: a.jobUrl,
-    createdAt: a.createdAt,
-    company: {
-      id: String(a.company.id),
-      name: a.company.name,
-      website: a.company.website,
-      industry: a.company.industry,
-      notes: a.company.notes,
-      interestLevel: a.company.interestLevel,
-    },
-    statusEvents: a.statusEvents.map((e) => ({
-      id: String(e.id),
-      status: e.status,
-      note: e.note,
-      eventDate: e.eventDate,
-    })),
-    followUps: a.followUps.map((f) => ({
-      id: String(f.id),
-      dueDate: f.dueDate,
-      note: f.note,
-      done: f.done,
-    })),
-  };
+export async function getCompanyNames() {
+  return data.getCompanyNames();
 }
 
-function withDashboardFields(summary: ApplicationSummary): DashboardApplication {
-  const lastEvent = [...summary.statusEvents].sort((x, y) =>
-    y.eventDate.localeCompare(x.eventDate)
-  )[0];
-  const daysSinceUpdate = lastEvent
-    ? Math.floor((Date.now() - new Date(lastEvent.eventDate).getTime()) / 86400000)
-    : null;
-  const openFollowUps = summary.followUps.filter((f) => !f.done);
-  return { ...summary, daysSinceUpdate, openFollowUps };
+export async function getDashboardData() {
+  return data.getDashboardData();
 }
 
-// ---------------------------------------------------------------------------
-// Mongo mapping to the shared summary types
-// ---------------------------------------------------------------------------
-
-function mapMongoApp(
-  doc: ApplicationDoc & { _id: ObjectId },
-  company: CompanyDoc & { _id: ObjectId }
-): ApplicationSummary {
-  return {
-    id: doc._id.toString(),
-    roleTitle: doc.roleTitle,
-    roleDescription: doc.roleDescription,
-    coverLetter: doc.coverLetter ?? null,
-    source: doc.source,
-    appliedDate: doc.appliedDate,
-    currentStatus: doc.currentStatus,
-    jobUrl: doc.jobUrl,
-    createdAt: doc.createdAt,
-    company: {
-      id: company._id.toString(),
-      name: company.name,
-      website: company.website,
-      industry: company.industry,
-      notes: company.notes,
-      interestLevel: company.interestLevel,
-    },
-    statusEvents: doc.statusEvents
-      .map((e): StatusEventSummary => ({
-        id: e._id.toString(),
-        status: e.status,
-        note: e.note,
-        eventDate: e.eventDate,
-      }))
-      .sort((x, y) => y.eventDate.localeCompare(x.eventDate)),
-    followUps: doc.followUps
-      .map((f): FollowUpSummary => ({
-        id: f._id.toString(),
-        dueDate: f.dueDate,
-        note: f.note,
-        done: f.done,
-      }))
-      .sort((x, y) => y.dueDate.localeCompare(x.dueDate)),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Reads
-// ---------------------------------------------------------------------------
-
-export async function getCompanyNames(): Promise<{ id: string; name: string }[]> {
-  const status = await getMongoStatus();
-  if (status.connected) {
-    const col = await companiesCollection();
-    const docs = await col.find().project<{ _id: ObjectId; name: string }>({ name: 1 }).toArray();
-    return docs.map((d) => ({ id: d._id.toString(), name: d.name }));
-  }
-  const rows = await db.query.companies.findMany();
-  return rows.map((c) => ({ id: String(c.id), name: c.name }));
-}
-
-async function getDashboardDataFromMongo(): Promise<DashboardApplication[]> {
-  const appsCol = await applicationsCollection();
-  const companiesCol = await companiesCollection();
-
-  const [apps, companyDocs] = await Promise.all([
-    appsCol.find().sort({ createdAt: -1 }).toArray(),
-    companiesCol.find().toArray(),
-  ]);
-  const companyMap = new Map(companyDocs.map((c) => [c._id!.toString(), c]));
-
-  return apps
-    .map((a) => {
-      const company = companyMap.get(a.companyId.toString());
-      if (!company) return null;
-      return withDashboardFields(mapMongoApp(a, company));
-    })
-    .filter((a): a is DashboardApplication => a !== null)
-    .sort((a, b) => (b.daysSinceUpdate ?? 0) - (a.daysSinceUpdate ?? 0));
-}
-
-async function getDashboardDataFromSqlite(): Promise<DashboardApplication[]> {
-  const apps = (await db.query.applications.findMany({
-    with: { company: true, statusEvents: true, followUps: true },
-    orderBy: [desc(applications.createdAt)],
-  })) as SqliteApplicationRow[];
-
-  return apps
-    .map((a) => withDashboardFields(mapSqliteApp(a)))
-    .sort((a, b) => (b.daysSinceUpdate ?? 0) - (a.daysSinceUpdate ?? 0));
-}
-
-export async function getDashboardData(): Promise<DashboardApplication[]> {
-  const status = await getMongoStatus();
-  return status.connected ? getDashboardDataFromMongo() : getDashboardDataFromSqlite();
-}
-
-async function getApplicationFromMongo(id: string): Promise<ApplicationSummary | undefined> {
-  if (!ObjectId.isValid(id)) return undefined;
-  const appsCol = await applicationsCollection();
-  const companiesCol = await companiesCollection();
-  const doc = await appsCol.findOne({ _id: new ObjectId(id) });
-  if (!doc) return undefined;
-  const company = await companiesCol.findOne({ _id: doc.companyId });
-  if (!company) return undefined;
-  return mapMongoApp(doc, company);
-}
-
-async function getApplicationFromSqlite(id: string): Promise<ApplicationSummary | undefined> {
-  const numericId = Number(id);
-  if (Number.isNaN(numericId)) return undefined;
-  const app = (await db.query.applications.findFirst({
-    where: eq(applications.id, numericId),
-    with: {
-      company: true,
-      statusEvents: { orderBy: [desc(statusEvents.eventDate)] },
-      followUps: { orderBy: [desc(followUps.dueDate)] },
-    },
-  })) as SqliteApplicationRow | undefined;
-  return app ? mapSqliteApp(app) : undefined;
-}
-
-export async function getApplication(id: string): Promise<ApplicationSummary | undefined> {
-  const status = await getMongoStatus();
-  return status.connected ? getApplicationFromMongo(id) : getApplicationFromSqlite(id);
+export async function getApplication(id: string) {
+  return data.getApplication(id);
 }
 
 // ---------------------------------------------------------------------------
 // Writes
 // ---------------------------------------------------------------------------
-
-type NewApplicationInput = {
-  companyName: string;
-  website: string | null;
-  industry: string | null;
-  interestLevel: number;
-  roleTitle: string;
-  roleDescription: string | null;
-  source: string | null;
-  jobUrl: string | null;
-  appliedDate: string;
-};
-
-async function createCompanyAndApplicationInMongo(input: NewApplicationInput): Promise<string> {
-  const companiesCol = await companiesCollection();
-  const appsCol = await applicationsCollection();
-
-  const existing = await companiesCol.findOne({ name: input.companyName });
-  const companyId =
-    existing?._id ??
-    (
-      await companiesCol.insertOne({
-        name: input.companyName,
-        website: input.website,
-        industry: input.industry,
-        notes: null,
-        interestLevel: input.interestLevel,
-        createdAt: new Date().toISOString(),
-      })
-    ).insertedId;
-
-  const initialStatusEvent: StatusEventDoc = {
-    _id: new ObjectId(),
-    status: "Applied",
-    note: null,
-    eventDate: input.appliedDate,
-    createdAt: new Date().toISOString(),
-  };
-
-  const result = await appsCol.insertOne({
-    companyId,
-    roleTitle: input.roleTitle,
-    roleDescription: input.roleDescription,
-    coverLetter: null,
-    source: input.source,
-    jobUrl: input.jobUrl,
-    appliedDate: input.appliedDate,
-    currentStatus: "Applied",
-    createdAt: new Date().toISOString(),
-    statusEvents: [initialStatusEvent],
-    followUps: [],
-  });
-
-  return result.insertedId.toString();
-}
-
-async function createCompanyAndApplicationInSqlite(input: NewApplicationInput): Promise<string> {
-  let companyId: number;
-  const existing = await db
-    .select()
-    .from(companies)
-    .where(eq(companies.name, input.companyName))
-    .limit(1);
-
-  if (existing.length > 0) {
-    companyId = existing[0].id;
-  } else {
-    const [created] = await db
-      .insert(companies)
-      .values({
-        name: input.companyName,
-        website: input.website,
-        industry: input.industry,
-        interestLevel: input.interestLevel,
-      })
-      .returning();
-    companyId = created.id;
-  }
-
-  const [app] = await db
-    .insert(applications)
-    .values({
-      companyId,
-      roleTitle: input.roleTitle,
-      roleDescription: input.roleDescription,
-      source: input.source,
-      jobUrl: input.jobUrl,
-      appliedDate: input.appliedDate,
-      currentStatus: "Applied",
-    })
-    .returning();
-
-  await db.insert(statusEvents).values({
-    applicationId: app.id,
-    status: "Applied",
-    eventDate: input.appliedDate,
-  });
-
-  return String(app.id);
-}
 
 export async function createCompanyAndApplication(formData: FormData) {
   const companyName = (formData.get("companyName") as string)?.trim();
@@ -351,14 +67,15 @@ export async function createCompanyAndApplication(formData: FormData) {
   const roleTitle = (formData.get("roleTitle") as string)?.trim();
   const roleDescription = (formData.get("roleDescription") as string)?.trim() || null;
   const source = (formData.get("source") as string)?.trim() || null;
-  const jobUrl = (formData.get("jobUrl") as string)?.trim() || null;
-  const appliedDate = (formData.get("appliedDate") as string) || today();
+  const rawJobUrl = (formData.get("jobUrl") as string)?.trim();
+  const jobUrl = rawJobUrl ? cleanJobUrl(rawJobUrl) : null;
+  const savedLinkId = (formData.get("savedLinkId") as string)?.trim() || null;
 
   if (!companyName || !roleTitle) {
     throw new Error("Company name and role title are required.");
   }
 
-  const input: NewApplicationInput = {
+  const input: data.NewApplicationInput = {
     companyName,
     website,
     industry,
@@ -367,16 +84,14 @@ export async function createCompanyAndApplication(formData: FormData) {
     roleDescription,
     source,
     jobUrl,
-    appliedDate,
   };
 
-  const status = await getMongoStatus();
-  const appId = status.connected
-    ? await createCompanyAndApplicationInMongo(input)
-    : await createCompanyAndApplicationInSqlite(input);
+  const appId = await data.createApplication(input);
+
+  await markSavedLinkDone(appId, { savedLinkId, jobUrl });
 
   revalidatePath("/");
-  redirect(`/applications/${appId}`);
+  redirect(`/applications/${appId}?step=cover-letter#cover-letter`);
 }
 
 export async function addStatusEvent(formData: FormData) {
@@ -387,25 +102,7 @@ export async function addStatusEvent(formData: FormData) {
 
   if (!applicationId || !status) throw new Error("Missing status event fields.");
 
-  const dbStatus = await getMongoStatus();
-  if (dbStatus.connected) {
-    const appsCol = await applicationsCollection();
-    const event: StatusEventDoc = {
-      _id: new ObjectId(),
-      status,
-      note,
-      eventDate,
-      createdAt: new Date().toISOString(),
-    };
-    await appsCol.updateOne(
-      { _id: new ObjectId(applicationId) },
-      { $push: { statusEvents: event }, $set: { currentStatus: status } }
-    );
-  } else {
-    const numericId = Number(applicationId);
-    await db.insert(statusEvents).values({ applicationId: numericId, status, note, eventDate });
-    await db.update(applications).set({ currentStatus: status }).where(eq(applications.id, numericId));
-  }
+  await data.recordStatusEvent(applicationId, status, note, eventDate);
 
   revalidatePath(`/applications/${applicationId}`);
   revalidatePath("/");
@@ -441,34 +138,117 @@ export async function addFollowUp(formData: FormData) {
   revalidatePath("/");
 }
 
+// Queues a draft and returns straight away; the AI runs after the response
+// (lib/coverLetterPipeline.ts). The page polls listCoverLetterDrafts.
 export async function generateCoverLetter(
   applicationId: string,
-  provider: "gemini" | "claude" = "claude"
+  provider: GeneratorProvider = "claude"
 ) {
   if (!applicationId) throw new Error("Missing application id.");
 
-  const context = await getCoverLetterContext(applicationId);
-  if (!context) throw new Error("Couldn't find that application.");
-
-  const profileResult = await readProfile();
-  if (!profileResult.ok) {
-    throw new Error(profileResult.problems.join(" "));
-  }
-
-  const [dbExamples, fileExamples] = await Promise.all([
-    getCoverLetterExamples(applicationId),
-    readFileExamples(),
-  ]);
-  const examples = [...fileExamples, ...dbExamples];
-  const letter =
-    provider === "claude"
-      ? await draftCoverLetterViaClaudeCli(context, profileResult.profile, examples)
-      : await draftCoverLetter(context, profileResult.profile, examples);
-
-  const { updated } = await setCoverLetter(applicationId, letter);
-  if (!updated) throw new Error("Generated the letter but couldn't save it.");
+  const draftId = await createDraft(applicationId, provider);
+  after(() => runDraft(draftId));
 
   revalidatePath(`/applications/${applicationId}`);
+}
+
+// The main page's paste box: a posting (its text, or just a link to a page
+// the app can read) → saved as "To apply" → a letter queued straight away,
+// formal or a short proposal depending on the kind. Redirects to the
+// application, where the letter appears when it's done.
+export type PasteResult = { error?: string; existing?: { id: string; label: string } };
+
+// Below this much text besides the link, the paste is treated as just a link.
+const MIN_POSTING_CHARS = 200;
+
+export async function writeLetterFromPaste(
+  _prev: PasteResult,
+  formData: FormData
+): Promise<PasteResult> {
+  const text = ((formData.get("posting") as string) ?? "").trim();
+  const kindChoice = formData.get("kind") as PostingKind | "auto";
+  const provider: GeneratorProvider = formData.get("provider") === "gemini" ? "gemini" : "claude";
+  if (!text) return { error: "Paste a job posting first." };
+
+  const rawUrl = firstUrl(text);
+  const jobUrl = rawUrl ? cleanJobUrl(rawUrl) : null;
+  const textBesidesLink = rawUrl ? text.replace(rawUrl, "").trim() : text;
+
+  if (jobUrl) {
+    const key = jobUrlKey(jobUrl);
+    const existing = (await data.getDashboardData()).find((a) => a.jobUrl && jobUrlKey(a.jobUrl) === key);
+    if (existing) {
+      return {
+        error: "You've already saved this job.",
+        existing: { id: existing.id, label: `${existing.company.name} – ${existing.roleTitle}` },
+      };
+    }
+  }
+
+  let input: data.NewApplicationInput;
+  let detectedKind: PostingKind;
+  try {
+    if (textBesidesLink.length < MIN_POSTING_CHARS) {
+      if (!jobUrl) return { error: "That's too short to be a job posting — paste the whole posting." };
+      const posting = await extractJobPostingFromUrl(jobUrl);
+      if (posting.error || !posting.roleDescription.trim()) {
+        return {
+          error: `${posting.error ?? "Couldn't find the job description on that page."} Copy the posting's text from your browser and paste it here instead (keep the link in, so it's saved too).`,
+        };
+      }
+      detectedKind = kindOfApplication({ source: posting.source, jobUrl });
+      input = {
+        companyName: posting.companyName.trim() || "Unknown company",
+        website: posting.companyWebsite || null,
+        industry: posting.industry || null,
+        interestLevel: 3,
+        roleTitle: posting.roleTitle.trim() || "Untitled role",
+        roleDescription: posting.roleDescription,
+        source: posting.source || null,
+        jobUrl,
+      };
+    } else {
+      const facts = await readPosting(text, provider);
+      detectedKind = facts.kind;
+      input = {
+        companyName: facts.companyName ?? (facts.kind === "freelance" ? "Freelance client" : "Unknown company"),
+        website: null,
+        industry: null,
+        interestLevel: 3,
+        roleTitle: facts.roleTitle ?? "Untitled role",
+        roleDescription: textBesidesLink || text,
+        source: facts.platform ?? (jobUrl ? inferSourceLabel(new URL(jobUrl).hostname) : null),
+        jobUrl,
+      };
+    }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+
+  const kind = kindChoice === "job" || kindChoice === "freelance" ? kindChoice : detectedKind;
+  input.source = sourceForKind(kind, input.source);
+
+  const appId = await data.createApplication(input);
+  if (jobUrl) await markSavedLinkDone(appId, { savedLinkId: null, jobUrl });
+  const draftId = await createDraft(appId, provider);
+  after(() => runDraft(draftId));
+
+  revalidatePath("/");
+  redirect(`/applications/${appId}?step=cover-letter#cover-letter`);
+}
+
+export async function listCoverLetterDrafts(applicationId: string): Promise<CoverLetterDraft[]> {
+  return listDrafts(applicationId);
+}
+
+// "Use this version" on a draft: makes it the application's cover letter.
+export async function applyCoverLetterDraft(formData: FormData) {
+  const draftId = (formData.get("draftId") as string)?.trim();
+  const draft = draftId ? await getDraft(draftId) : null;
+  if (!draft?.letter) throw new Error("That draft has no letter to use.");
+
+  await setCoverLetter(draft.applicationId, draft.letter);
+  revalidatePath(`/applications/${draft.applicationId}`);
 }
 
 export async function saveCoverLetter(formData: FormData) {
@@ -504,6 +284,7 @@ export async function deleteApplication(applicationId: string) {
   if (status.connected) {
     const appsCol = await applicationsCollection();
     await appsCol.deleteOne({ _id: new ObjectId(applicationId) });
+    await deleteDraftsForApplication(applicationId);
   } else {
     await db.delete(applications).where(eq(applications.id, Number(applicationId)));
   }
@@ -512,58 +293,41 @@ export async function deleteApplication(applicationId: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Settings — viewing/editing/uploading/deleting the profile/ documents the
-// cover-letter generator reads (see lib/coverLetterGenerator.ts, lib/profileFiles.ts).
+// Settings — the files in profile/ the cover-letter generator reads (see
+// lib/coverLetterGenerator.ts, lib/profileStore.ts).
 
 export async function getProfileSettings() {
-  const [resume, writingStyle, notes, examples] = await Promise.all([
-    getResume(),
-    getWritingStyle(),
-    listNotes(),
-    listExamples(),
+  const [about, style, examples] = await Promise.all([
+    listProfileFiles("about"),
+    listProfileFiles("style"),
+    listProfileFiles("examples"),
   ]);
-  return { resume, writingStyle, notes, examples };
+  return { about, style, examples };
 }
 
-export async function saveResumeAction(formData: FormData) {
-  await saveResume((formData.get("content") as string) ?? "");
-  revalidatePath("/settings");
-}
-
-export async function saveWritingStyleAction(formData: FormData) {
-  await saveWritingStyle((formData.get("content") as string) ?? "");
-  revalidatePath("/settings");
-}
-
-async function saveUploadedFiles(
-  formData: FormData,
-  save: (filename: string, content: string) => Promise<void>
-) {
-  const files = formData.getAll("files");
-  for (const file of files) {
-    if (!(file instanceof File) || file.size === 0) continue;
-    await save(file.name, await file.text());
+// One file per call (the drop zone sends them one at a time), so the body
+// limit in next.config.ts applies per file. Returns the problem instead of
+// throwing, for the drop zone to show next to the file.
+export async function uploadProfileFileAction(
+  formData: FormData
+): Promise<{ error?: string }> {
+  const section = formData.get("section");
+  const file = formData.get("file");
+  if (!isProfileSection(section) || !(file instanceof File)) return { error: "Nothing to upload." };
+  try {
+    await saveProfileFile(section, file.name, Buffer.from(await file.arrayBuffer()));
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
   }
-}
-
-export async function uploadNotesAction(formData: FormData) {
-  await saveUploadedFiles(formData, saveNote);
   revalidatePath("/settings");
+  return {};
 }
 
-export async function deleteNoteAction(formData: FormData) {
-  const filename = formData.get("filename") as string;
-  if (filename) await deleteNote(filename);
-  revalidatePath("/settings");
-}
-
-export async function uploadExamplesAction(formData: FormData) {
-  await saveUploadedFiles(formData, saveExample);
-  revalidatePath("/settings");
-}
-
-export async function deleteExampleAction(formData: FormData) {
-  const filename = formData.get("filename") as string;
-  if (filename) await deleteExample(filename);
+export async function deleteProfileFileAction(formData: FormData) {
+  const section = formData.get("section");
+  const filename = formData.get("filename");
+  if (isProfileSection(section) && typeof filename === "string" && filename) {
+    await deleteProfileFile(section, filename);
+  }
   revalidatePath("/settings");
 }

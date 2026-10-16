@@ -10,6 +10,9 @@ export type JobSource = {
   status: JobSourceStatus;
   note?: string;
   lastVerified?: string; // ISO date, only present once actually checked
+  // Freelance marketplaces get a short proposal instead of a formal letter
+  // (lib/postingKind.ts).
+  kind?: "freelance";
 };
 
 export const JOB_SOURCES: JobSource[] = [
@@ -20,8 +23,25 @@ export const JOB_SOURCES: JobSource[] = [
     note: "Glassdoor blocks automated requests (HTTP 403) — fill this one in by hand.",
     lastVerified: "2026-09-27",
   },
+  {
+    domain: "upwork.com",
+    label: "Upwork",
+    status: "blocked",
+    note: "Upwork blocks the app (HTTP 403) — the title is read from the link. Use the userscript's import button in your browser, or paste the description in by hand.",
+    lastVerified: "2026-10-10",
+    kind: "freelance",
+  },
+  { domain: "fiverr.com", label: "Fiverr", status: "unverified", kind: "freelance" },
+  { domain: "freelancer.com", label: "Freelancer", status: "unverified", kind: "freelance" },
+  { domain: "peopleperhour.com", label: "PeoplePerHour", status: "unverified", kind: "freelance" },
   { domain: "linkedin.com", label: "LinkedIn", status: "working", lastVerified: "2026-09-27" },
-  { domain: "indeed.com", label: "Indeed", status: "unverified" },
+  {
+    domain: "indeed.com",
+    label: "Indeed",
+    status: "blocked",
+    note: "Indeed's bot detection blocks the app (HTTP 401) — open the posting in your browser on the laptop and use the userscript's import button, or fill this in by hand.",
+    lastVerified: "2026-10-10",
+  },
   { domain: "greenhouse.io", label: "Greenhouse", status: "unverified" },
   { domain: "lever.co", label: "Lever", status: "unverified" },
   { domain: "ashbyhq.com", label: "Ashby", status: "unverified" },

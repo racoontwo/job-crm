@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Job CRM — Import job posting
 // @namespace    job-crm
-// @version      2.0
+// @version      2.1
 // @description  Reads the job posting you're viewing (as you, in your own browser) and sends it to your local Job CRM's review screen. Works on any job site; it's the only option for sites that block the app's own server (e.g. Glassdoor returns HTTP 403 to non-browser requests).
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
@@ -13,7 +13,7 @@
   "use strict";
 
   // Change this if your dev server runs on a different port.
-  const APP_ORIGIN = "http://localhost:3000";
+  const APP_ORIGIN = "http://127.0.0.1:3001";
 
   // Mirrors lib/jobSources.ts's domain -> label map. Only used to label the
   // "Source" field nicely; unlisted hosts just use the bare hostname.

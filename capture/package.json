@@ -1,0 +1,9 @@
+{
+  "name": "job-crm-capture",
+  "private": true,
+  "type": "module",
+  "description": "Receives job links shared from the phone and stores them in Atlas for job-crm's inbox.",
+  "dependencies": {
+    "mongodb": "^7.1.0"
+  }
+}

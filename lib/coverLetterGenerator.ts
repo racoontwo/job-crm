@@ -3,22 +3,23 @@
 //
 // Both are stateless — neither reads this app's database or filesystem on
 // its own. Everything either "knows" is assembled here into one prompt: the
-// target job (from the DB), the user's background and rules (from profile/),
-// and past letters they approved (the few-shot memory). See
-// lib/db/coverLetters.ts.
+// target job (from the DB), the user's background and rules (the files in
+// profile/, lib/profileStore.ts), and past letters they approved (the
+// few-shot memory, lib/db/coverLetters.ts). The pipeline that runs this per
+// draft lives in lib/coverLetterPipeline.ts.
 //
 // Gemini API shape below was verified against @google/genai's own type
 // definitions, not the published docs — the docs describe an `output_text`
 // convenience property and model ids this SDK version doesn't have.
 
-import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { GoogleGenAI } from "@google/genai";
 import type { CoverLetterContext, CoverLetterExample } from "@/lib/db/coverLetters";
-import { PROFILE_DIR, NOTES_DIR, EXAMPLES_DIR, EXAMPLE_EXTENSIONS } from "@/lib/profilePaths";
+import { readProfileSection, type ProfileDocument } from "@/lib/profileStore";
+import { LETTER_FORMATS, kindOfApplication, type PostingKind } from "@/lib/postingKind";
 
 const DEFAULT_MODEL = "gemini-2.5-flash";
 const MAX_FILE_EXAMPLES = 6;
@@ -26,96 +27,59 @@ const CLAUDE_CLI_TIMEOUT_MS = 120_000;
 
 export type Profile = { resume: string; writingStyle: string };
 
-// A file that's still all scaffolding would produce a letter built on
-// placeholders, so treat it as missing rather than generating from it.
-//
-// Checks the literal "FILL ME IN" marker first: the length-only check below
-// used to be the only signal, and it undercounted — a template's own
-// explanatory intro prose (not a comment, not a heading) is well over 200
-// chars by itself, so a completely unfilled resume.md/writing-style.md could
-// pass as "filled in" and get sent to the AI anyway. The model would then
-// correctly notice nothing real was there and write a long refusal instead
-// of a letter — which got saved as if it were one. Catching the marker here
-// stops that before any AI call happens.
-function isUnfilledTemplate(text: string): boolean {
-  if (text.includes("FILL ME IN")) return true;
-  return text.replace(/<!--[\s\S]*?-->/g, "").replace(/^#.*$/gm, "").trim().length < 200;
-}
+// Without rules of their own, letters still need some. Length and layout
+// come from the posting's kind (LETTER_FORMATS), not from here.
+const DEFAULT_WRITING_RULES = `- Write in the language of the job posting.
+- Plain, direct, confident tone; no clichés or filler.`;
 
+// Reads the profile/ folders (lib/profileStore.ts). Background is required;
+// writing rules are optional. Unfilled templates and unreadable files are
+// already left out by readProfileSection.
 export async function readProfile(): Promise<
   { ok: true; profile: Profile } | { ok: false; problems: string[] }
 > {
-  const files = [
-    { name: "resume.md", label: "profile/resume.md" },
-    { name: "writing-style.md", label: "profile/writing-style.md" },
-  ] as const;
-
-  const problems: string[] = [];
-  const contents: string[] = [];
-
-  for (const file of files) {
-    try {
-      const text = await readFile(path.join(PROFILE_DIR, file.name), "utf8");
-      if (isUnfilledTemplate(text)) {
-        problems.push(`${file.label} is still an empty template — fill it in first.`);
-      }
-      contents.push(text);
-    } catch {
-      problems.push(`${file.label} is missing.`);
-      contents.push("");
-    }
+  const [about, style] = await Promise.all([readProfileSection("about"), readProfileSection("style")]);
+  if (about.length === 0) {
+    return {
+      ok: false,
+      problems: [
+        "There's nothing about you to write from yet — drop your CV (or other background) into \"About you\" on the Settings page.",
+      ],
+    };
   }
-
-  if (problems.length > 0) return { ok: false, problems };
-  const notes = await readNotes();
-  return { ok: true, profile: { resume: contents[0] + notes, writingStyle: contents[1] } };
+  return {
+    ok: true,
+    profile: {
+      resume: renderDocuments(about),
+      writingStyle: style.length > 0 ? renderDocuments(style) : DEFAULT_WRITING_RULES,
+    },
+  };
 }
 
-// Optional supplementary background — profile/notes/*.md, all combined into
-// the resume's background section. Missing folder is fine (zero notes), not
-// an error, unlike resume.md/writing-style.md above.
-async function readNotes(): Promise<string> {
-  let filenames: string[];
-  try {
-    filenames = (await readdir(NOTES_DIR)).filter((f) => f.endsWith(".md")).sort();
-  } catch {
-    return "";
-  }
-  if (filenames.length === 0) return "";
-
-  const sections = await Promise.all(
-    filenames.map(async (filename) => {
-      const text = (await readFile(path.join(NOTES_DIR, filename), "utf8")).trim();
-      return `### ${filename.replace(/\.md$/, "")}\n\n${text}`;
-    })
-  );
-
-  return `\n\n## Additional notes\n\n${sections.join("\n\n")}`;
+// One heading per file, so the AI can tell a CV from a note.
+function renderDocuments(docs: ProfileDocument[]): string {
+  if (docs.length === 1) return docs[0].content.trim();
+  return docs
+    .map((d) => `### ${d.name}\n\n${d.content.trim()}`)
+    .join("\n\n");
 }
 
-// Optional past cover letters — profile/examples/*.md|*.txt, combined with
-// the DB's own few-shot examples (see lib/actions/actions.ts). Whole file
-// content is the letter as-is; no required metadata. Missing folder is fine.
-export async function readFileExamples(): Promise<CoverLetterExample[]> {
-  let filenames: string[];
-  try {
-    filenames = (await readdir(EXAMPLES_DIR))
-      .filter((f) => EXAMPLE_EXTENSIONS.includes(path.extname(f)))
-      .sort();
-  } catch {
-    return [];
-  }
-
-  const examples = await Promise.all(
-    filenames.slice(0, MAX_FILE_EXAMPLES).map(async (filename): Promise<CoverLetterExample | null> => {
-      const text = (await readFile(path.join(EXAMPLES_DIR, filename), "utf8")).trim();
-      return text.length > 0
-        ? { companyName: null, industry: null, roleTitle: null, roleDescriptionExcerpt: null, letter: text }
-        : null;
-    })
-  );
-
-  return examples.filter((e): e is CoverLetterExample => e !== null);
+// Optional past cover letters uploaded on the Settings page, combined with
+// the letters saved on applications (lib/db/coverLetters.ts). The whole
+// document is the letter as-is; no required metadata.
+export async function readProfileExamples(): Promise<CoverLetterExample[]> {
+  const docs = await readProfileSection("examples");
+  return docs
+    .slice(0, MAX_FILE_EXAMPLES)
+    .map((doc) => doc.content.trim())
+    .filter((letter) => letter.length > 0)
+    .map((letter) => ({
+      companyName: null,
+      industry: null,
+      roleTitle: null,
+      roleDescriptionExcerpt: null,
+      letter,
+    }));
 }
 
 function renderExamples(examples: CoverLetterExample[]): string {
@@ -142,7 +106,7 @@ function renderExamples(examples: CoverLetterExample[]): string {
     .join("\n\n");
 }
 
-function buildPrompt(
+export function buildPrompt(
   context: CoverLetterContext,
   profile: Profile,
   examples: CoverLetterExample[]
@@ -156,8 +120,9 @@ function buildPrompt(
   ]
     .filter(Boolean)
     .join("\n");
+  const kind = kindOfApplication(context);
 
-  return `You are drafting a cover letter on behalf of the person described below. Write it in their voice, as if they wrote it themselves.
+  return `You are drafting a ${kind === "freelance" ? "proposal for a freelance gig" : "cover letter"} on behalf of the person described below. Write it in their voice, as if they wrote it themselves.
 
 Read the job posting carefully and pick out which of their actual skills and experience are most relevant to this specific role. Be specific and selective rather than listing everything.
 
@@ -165,11 +130,15 @@ HARD RULES — these override everything else, including any pattern you notice 
 
 ${profile.writingStyle}
 
+FORMAT — length, register and layout for this kind of posting. Follow it unless the rules above explicitly say otherwise for this kind of posting:
+
+${LETTER_FORMATS[kind]}
+
 THE PERSON'S BACKGROUND — you may only use facts that appear here. Do not invent employers, job titles, dates, metrics, technologies, or qualifications. If the posting asks for something their background doesn't cover, either leave it out or address it honestly; never fabricate it.
 
 ${profile.resume}
 
-PAST LETTERS THIS PERSON APPROVED — match their structure, rhythm, and voice. These reflect how they actually want letters written, since they edited and saved them.
+PAST LETTERS THIS PERSON APPROVED — match their voice and rhythm. These reflect how they actually want letters written, since they edited and saved them. Where an example is a different kind of letter (a formal letter vs. a short freelance proposal), take only the voice from it — length and layout come from FORMAT.
 
 ${renderExamples(examples)}
 
@@ -177,14 +146,12 @@ THE JOB TO WRITE FOR NOW:
 
 ${targetJob}
 
-Output only the cover letter itself — no preamble, no commentary, no subject line, no markdown formatting.`;
+Output only the ${kind === "freelance" ? "proposal" : "cover letter"} itself — no preamble, no commentary, no subject line, no markdown formatting.`;
 }
 
-export async function draftCoverLetter(
-  context: CoverLetterContext,
-  profile: Profile,
-  examples: CoverLetterExample[]
-): Promise<string> {
+export type ProviderResult = { text: string; model: string };
+
+export async function draftWithGemini(prompt: string): Promise<ProviderResult> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error(
@@ -192,11 +159,9 @@ export async function draftCoverLetter(
     );
   }
 
+  const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
   const ai = new GoogleGenAI({ apiKey });
-  const interaction = await ai.interactions.create({
-    model: process.env.GEMINI_MODEL || DEFAULT_MODEL,
-    input: buildPrompt(context, profile, examples),
-  });
+  const interaction = await ai.interactions.create({ model, input: prompt });
 
   const text = (interaction.outputs ?? [])
     .flatMap((block) => (block.type === "text" ? [block.text] : []))
@@ -209,7 +174,7 @@ export async function draftCoverLetter(
     );
   }
 
-  return text;
+  return { text, model };
 }
 
 // Alternative provider: the already-installed `claude` CLI, run headless
@@ -248,14 +213,14 @@ function resolveClaudeBinary(): string {
   return "claude"; // last resort: hope it's on this process's PATH
 }
 
-function runClaudeCli(prompt: string): Promise<string> {
+function runClaudeCli(prompt: string, extraArgs: string[] = []): Promise<string> {
   return new Promise((resolve, reject) => {
     const claudeBinary = resolveClaudeBinary();
     console.log(`[cover letter] running \`${claudeBinary} -p\` (prompt: ${prompt.length} chars)...`);
 
     const child = spawn(
       claudeBinary,
-      ["-p", "--output-format", "text"],
+      ["-p", "--output-format", "text", ...extraArgs],
       {
         cwd: os.tmpdir(),
         timeout: CLAUDE_CLI_TIMEOUT_MS,
@@ -321,12 +286,7 @@ function runClaudeCli(prompt: string): Promise<string> {
   });
 }
 
-export async function draftCoverLetterViaClaudeCli(
-  context: CoverLetterContext,
-  profile: Profile,
-  examples: CoverLetterExample[]
-): Promise<string> {
-  const prompt = buildPrompt(context, profile, examples);
+export async function draftWithClaudeCli(prompt: string): Promise<ProviderResult> {
   const text = await runClaudeCli(prompt);
 
   if (!text) {
@@ -335,5 +295,60 @@ export async function draftCoverLetterViaClaudeCli(
     );
   }
 
-  return text;
+  // `-p` uses whatever model the CLI is configured with; it isn't reported back.
+  return { text, model: "claude CLI (default model)" };
+}
+
+// ---------------------------------------------------------------------------
+// Reading a pasted posting (the paste box on the main page): the company,
+// role, platform and kind, so it can be saved as an application. The pasted
+// text itself is stored as the role description, unchanged.
+
+export type PostingFacts = {
+  companyName: string | null;
+  roleTitle: string | null;
+  platform: string | null;
+  kind: PostingKind;
+};
+
+function readPostingPrompt(text: string): string {
+  return `Below is a job posting someone copied from a website. Read it and answer with JSON only, no markdown fence, in exactly this shape:
+
+{"company": string or null, "role": string or null, "platform": string or null, "kind": "job" or "freelance"}
+
+- company: the hiring company's name as written in the posting. null if it isn't named (common on freelance marketplaces).
+- role: the job title, short, as written in the posting. If there is no title, a short title (max 8 words) describing the work, in the posting's language.
+- platform: the site it was posted on if it's evident (e.g. "Indeed", "Glassdoor", "LinkedIn", "Upwork", "Fiverr"), else null.
+- kind: "freelance" for a gig or contract on a freelance marketplace (Upwork, Fiverr, Freelancer, …), "job" for an employment position.
+
+THE POSTING:
+
+${text}`;
+}
+
+function parsePostingFacts(raw: string): PostingFacts {
+  const json = raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1);
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    throw new Error("Couldn't read the company and role from the posting. Try again.");
+  }
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 200) : null);
+  return {
+    companyName: str(parsed.company),
+    roleTitle: str(parsed.role),
+    platform: str(parsed.platform),
+    kind: parsed.kind === "freelance" ? "freelance" : "job",
+  };
+}
+
+export async function readPosting(text: string, provider: "claude" | "gemini"): Promise<PostingFacts> {
+  const prompt = readPostingPrompt(text);
+  // A small, fast model is plenty for picking out a name and a title.
+  const raw =
+    provider === "claude"
+      ? await runClaudeCli(prompt, ["--model", "haiku"])
+      : (await draftWithGemini(prompt)).text;
+  return parsePostingFacts(raw);
 }

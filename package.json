@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -H ${BIND_HOST:-127.0.0.1}",
+    "dev": "next dev -H ${BIND_HOST:-127.0.0.1} -p ${PORT:-3001}",
     "build": "next build",
-    "start": "next start -H ${BIND_HOST:-127.0.0.1}",
+    "start": "next start -H ${BIND_HOST:-127.0.0.1} -p ${PORT:-3001}",
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
@@ -14,12 +14,16 @@
   },
   "dependencies": {
     "@google/genai": "^1.46.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.3",
+    "mammoth": "^1.13.0",
     "mongodb": "^7.1.0",
     "next": "16.4.0",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "unpdf": "^1.8.1",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -31,6 +35,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.0",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }
